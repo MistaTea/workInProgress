@@ -1,0 +1,31 @@
+{
+  "name": "ba-workbench",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI-powered Senior Business Analyst Workbench monorepo.",
+  "scripts": {
+    "dev": "pnpm --parallel --filter @ba-workbench/web --filter @ba-workbench/api dev",
+    "dev:web": "pnpm --filter @ba-workbench/web dev",
+    "dev:api": "pnpm --filter @ba-workbench/api dev",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "db:generate": "pnpm --filter @ba-workbench/database db:generate",
+    "db:migrate": "pnpm --filter @ba-workbench/database db:migrate"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "packageManager": "pnpm@9.15.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.2"
+  }
+}

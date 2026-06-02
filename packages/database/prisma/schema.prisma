@@ -1,0 +1,585 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ProjectStatus {
+  draft
+  active
+  on_hold
+  completed
+  archived
+}
+
+enum RequirementType {
+  business
+  functional
+  non_functional
+  transition
+  reporting
+  data
+  integration
+}
+
+enum RequirementStatus {
+  draft
+  in_review
+  approved
+  baselined
+  change_requested
+  rejected
+  superseded
+}
+
+enum Priority {
+  must
+  should
+  could
+  wont
+}
+
+enum AiReviewStatus {
+  generated
+  under_ba_review
+  accepted_by_ba
+  rejected_by_ba
+  sent_to_stakeholder
+  approved_by_stakeholder
+  published
+  superseded
+}
+
+enum ApprovalDecision {
+  approved
+  changes_requested
+  rejected
+}
+
+enum ReviewLinkStatus {
+  active
+  expired
+  completed
+  revoked
+}
+
+enum SyncProvider {
+  jira
+  confluence
+  teams
+}
+
+enum SyncState {
+  not_synced
+  synced
+  pending_push
+  pending_pull
+  conflict
+  failed
+}
+
+enum TraceabilityLinkType {
+  satisfies
+  decomposes_to
+  validated_by
+  depends_on
+  impacts
+  derived_from
+  mitigates
+  decided_by
+  implemented_by
+  tests
+}
+
+enum AuditActorType {
+  user
+  stakeholder_link
+  system
+  ai
+}
+
+model Organisation {
+  id          String    @id @default(cuid())
+  name        String
+  domain      String?
+  dataPolicy  Json?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  users       User[]
+  projects    Project[]
+}
+
+model User {
+  id             String        @id @default(cuid())
+  organisationId String
+  email          String        @unique
+  displayName    String
+  role           String        @default("owner")
+  status         String        @default("active")
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  organisation   Organisation  @relation(fields: [organisationId], references: [id])
+  ownedProjects  Project[]     @relation("ProjectOwner")
+  memberships    ProjectMember[]
+  auditEvents    AuditEvent[]
+}
+
+model Project {
+  id               String        @id @default(cuid())
+  organisationId   String
+  ownerId          String
+  name             String
+  problemStatement String?
+  objectives       Json?
+  scope            Json?
+  status           ProjectStatus @default(draft)
+  reusableMemory   Boolean       @default(false)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  organisation     Organisation  @relation(fields: [organisationId], references: [id])
+  owner            User          @relation("ProjectOwner", fields: [ownerId], references: [id])
+  members          ProjectMember[]
+  stakeholders     Stakeholder[]
+  requirements     Requirement[]
+  documents        Document[]
+  baselines        RequirementBaseline[]
+  aiJobs           AiJob[]
+  aiDraftOutputs   AiDraftOutput[]
+  epics            Epic[]
+  userStories      UserStory[]
+  testScenarios    TestScenario[]
+  risks            Risk[]
+  decisions        Decision[]
+  traceability     TraceabilityLink[]
+  auditEvents      AuditEvent[]
+
+  @@index([organisationId])
+  @@index([ownerId])
+}
+
+model ProjectMember {
+  id        String   @id @default(cuid())
+  projectId String
+  userId    String
+  role      String
+  createdAt DateTime @default(now())
+
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+}
+
+model Stakeholder {
+  id              String   @id @default(cuid())
+  projectId       String
+  name            String
+  email           String?
+  role            String?
+  influence       Int?
+  interest        Int?
+  approvalRole    String?
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  reviewLinks     ReviewLink[]
+  approvals       ApprovalEvidence[]
+
+  @@index([projectId])
+}
+
+model Requirement {
+  id              String            @id @default(cuid())
+  projectId       String
+  reference       String
+  title           String
+  statement       String
+  type            RequirementType
+  status          RequirementStatus @default(draft)
+  priority        Priority          @default(should)
+  rationale       String?
+  qualityScore    Int?
+  ownerId         String?
+  currentVersion  Int               @default(1)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  project         Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  versions        RequirementVersion[]
+  baselineItems   BaselineItem[]
+
+  @@unique([projectId, reference])
+  @@index([projectId, status])
+  @@index([projectId, type])
+}
+
+model RequirementVersion {
+  id             String      @id @default(cuid())
+  requirementId  String
+  version        Int
+  title          String
+  statement      String
+  type           RequirementType
+  priority       Priority
+  rationale      String?
+  sourceRefs     Json?
+  createdById    String?
+  createdAt      DateTime    @default(now())
+
+  requirement    Requirement @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+  baselineItems  BaselineItem[]
+
+  @@unique([requirementId, version])
+}
+
+model RequirementBaseline {
+  id            String    @id @default(cuid())
+  projectId     String
+  name          String
+  version       Int
+  status        String    @default("draft")
+  createdById   String?
+  createdAt     DateTime  @default(now())
+  approvedAt    DateTime?
+
+  project       Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  items         BaselineItem[]
+  reviewLinks   ReviewLink[]
+  approvals     ApprovalEvidence[]
+
+  @@unique([projectId, version])
+}
+
+model BaselineItem {
+  id                     String              @id @default(cuid())
+  baselineId             String
+  requirementId          String
+  requirementVersionId   String
+
+  baseline               RequirementBaseline @relation(fields: [baselineId], references: [id], onDelete: Cascade)
+  requirement            Requirement         @relation(fields: [requirementId], references: [id])
+  requirementVersion     RequirementVersion  @relation(fields: [requirementVersionId], references: [id])
+
+  @@unique([baselineId, requirementId])
+}
+
+model Document {
+  id              String          @id @default(cuid())
+  projectId       String
+  name            String
+  documentType    String
+  storageUri      String
+  extractionStatus String         @default("pending")
+  version         Int             @default(1)
+  metadata        Json?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  project         Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  chunks          DocumentChunk[]
+
+  @@index([projectId])
+}
+
+model DocumentChunk {
+  id          String              @id @default(cuid())
+  documentId  String
+  chunkIndex  Int
+  chunkText   String
+  pageRef     String?
+  metadata    Json?
+  createdAt   DateTime            @default(now())
+
+  document    Document            @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  embedding   DocumentEmbedding?
+
+  @@unique([documentId, chunkIndex])
+}
+
+model DocumentEmbedding {
+  id              String   @id @default(cuid())
+  documentChunkId String   @unique
+  model           String
+  dimensions      Int
+  embedding       Unsupported("vector")?
+  createdAt       DateTime @default(now())
+
+  chunk           DocumentChunk @relation(fields: [documentChunkId], references: [id], onDelete: Cascade)
+}
+
+model AiJob {
+  id            String   @id @default(cuid())
+  projectId     String
+  jobType       String
+  status        String   @default("queued")
+  input         Json
+  error         String?
+  startedAt     DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime @default(now())
+
+  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  outputs       AiDraftOutput[]
+
+  @@index([projectId, status])
+}
+
+model AiDraftOutput {
+  id              String         @id @default(cuid())
+  projectId       String
+  aiJobId         String?
+  outputType      String
+  payload         Json
+  sourceRefs      Json?
+  confidence      Int?
+  reviewStatus    AiReviewStatus @default(generated)
+  promptVersion   String?
+  model           String?
+  tokenUsage      Json?
+  createdAt       DateTime       @default(now())
+  reviewedAt      DateTime?
+
+  project         Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  aiJob           AiJob?         @relation(fields: [aiJobId], references: [id], onDelete: SetNull)
+
+  @@index([projectId, outputType])
+  @@index([reviewStatus])
+}
+
+model Epic {
+  id          String    @id @default(cuid())
+  projectId   String
+  title       String
+  description String?
+  jiraKey     String?
+  status      String    @default("draft")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  features    Feature[]
+
+  @@index([projectId])
+}
+
+model Feature {
+  id          String    @id @default(cuid())
+  epicId      String
+  title       String
+  description String?
+  priority    Priority  @default(should)
+  status      String    @default("draft")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  epic        Epic      @relation(fields: [epicId], references: [id], onDelete: Cascade)
+  stories     UserStory[]
+}
+
+model UserStory {
+  id          String    @id @default(cuid())
+  projectId   String
+  featureId   String?
+  title       String
+  asA         String
+  iWant       String
+  soThat      String
+  status      String    @default("draft")
+  jiraKey     String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  feature     Feature?  @relation(fields: [featureId], references: [id], onDelete: SetNull)
+  criteria    AcceptanceCriteria[]
+
+  @@index([projectId])
+}
+
+model AcceptanceCriteria {
+  id        String    @id @default(cuid())
+  storyId   String
+  format    String    @default("given_when_then")
+  text      String
+  status    String    @default("draft")
+  createdAt DateTime  @default(now())
+
+  story     UserStory @relation(fields: [storyId], references: [id], onDelete: Cascade)
+}
+
+model TestScenario {
+  id             String   @id @default(cuid())
+  projectId      String
+  title          String
+  scenarioText   String
+  coverageType   String   @default("business")
+  status         String   @default("draft")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+model Risk {
+  id          String   @id @default(cuid())
+  projectId   String
+  title       String
+  description String?
+  impact      String
+  likelihood  String
+  rating      String
+  mitigation  String?
+  owner       String?
+  status      String   @default("open")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model Decision {
+  id             String   @id @default(cuid())
+  projectId      String
+  decisionText   String
+  rationale      String?
+  decisionMaker  String?
+  status         String   @default("proposed")
+  decidedAt      DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model TraceabilityLink {
+  id            String               @id @default(cuid())
+  projectId     String
+  sourceType    String
+  sourceId      String
+  targetType    String
+  targetId      String
+  linkType      TraceabilityLinkType
+  confidence    Int?
+  status        String               @default("approved")
+  createdBy     String?
+  createdAt     DateTime             @default(now())
+
+  project       Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, sourceType, sourceId])
+  @@index([projectId, targetType, targetId])
+}
+
+model ReviewLink {
+  id             String            @id @default(cuid())
+  tokenHash      String            @unique
+  stakeholderId  String?
+  baselineId     String?
+  artefactType   String
+  artefactId     String
+  status         ReviewLinkStatus  @default(active)
+  expiresAt      DateTime
+  emailRequired  Boolean           @default(true)
+  createdAt      DateTime          @default(now())
+
+  stakeholder    Stakeholder?      @relation(fields: [stakeholderId], references: [id], onDelete: SetNull)
+  baseline       RequirementBaseline? @relation(fields: [baselineId], references: [id], onDelete: Cascade)
+  approvals      ApprovalEvidence[]
+}
+
+model ApprovalEvidence {
+  id             String            @id @default(cuid())
+  stakeholderId  String?
+  reviewLinkId   String?
+  baselineId     String?
+  artefactType   String
+  artefactId     String
+  artefactVersion String?
+  decision       ApprovalDecision
+  comments       String?
+  reviewerName   String
+  reviewerEmail  String?
+  ipHash         String?
+  userAgent      String?
+  decidedAt      DateTime          @default(now())
+
+  stakeholder    Stakeholder?      @relation(fields: [stakeholderId], references: [id], onDelete: SetNull)
+  reviewLink     ReviewLink?       @relation(fields: [reviewLinkId], references: [id], onDelete: SetNull)
+  baseline       RequirementBaseline? @relation(fields: [baselineId], references: [id], onDelete: SetNull)
+}
+
+model IntegrationConnection {
+  id          String       @id @default(cuid())
+  provider    SyncProvider
+  name        String
+  authRef     String
+  status      String       @default("connected")
+  config      Json?
+  lastSyncAt  DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  mappings    ExternalSyncMapping[]
+}
+
+model ExternalSyncMapping {
+  id             String                @id @default(cuid())
+  connectionId   String
+  localType      String
+  localId        String
+  provider       SyncProvider
+  externalId     String
+  externalUrl    String?
+  syncState      SyncState             @default(not_synced)
+  lastSyncedAt   DateTime?
+  remoteVersion  String?
+  localVersion   String?
+
+  connection     IntegrationConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  conflicts      SyncConflict[]
+
+  @@unique([provider, externalId])
+  @@index([localType, localId])
+}
+
+model SyncConflict {
+  id             String              @id @default(cuid())
+  mappingId      String
+  conflictType   String
+  localSnapshot  Json
+  remoteSnapshot Json
+  status         String              @default("open")
+  createdAt      DateTime            @default(now())
+  resolvedAt     DateTime?
+
+  mapping        ExternalSyncMapping @relation(fields: [mappingId], references: [id], onDelete: Cascade)
+}
+
+model AuditEvent {
+  id          String         @id @default(cuid())
+  projectId   String?
+  actorId     String?
+  actorType   AuditActorType
+  action      String
+  artefactType String?
+  artefactId  String?
+  summary     String
+  metadata    Json?
+  occurredAt  DateTime       @default(now())
+
+  project     Project?       @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  actor       User?          @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([projectId, occurredAt])
+  @@index([artefactType, artefactId])
+}
