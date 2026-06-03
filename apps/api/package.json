@@ -8,7 +8,7 @@
     "start": "node dist/main.js",
     "lint": "tsc -p tsconfig.json --noEmit",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "echo \"No tests yet for API app\""
+    "test": "tsx --test test/api.integration.test.ts"
   },
   "dependencies": {
     "@ba-workbench/ai-schemas": "workspace:*",

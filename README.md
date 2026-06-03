@@ -51,3 +51,14 @@ Until authentication is implemented, the API creates a development workspace own
 - `DEFAULT_OWNER_EMAIL`
 
 The development identity is an interim boundary and must be replaced by authenticated user context before production use.
+
+## Integration Tests
+
+The API integration test starts the real NestJS application and exercises project and requirement persistence against PostgreSQL.
+
+```bash
+docker compose -f infra/docker/docker-compose.local.yml up -d
+cp .env.example .env
+pnpm db:push
+pnpm test
+```
