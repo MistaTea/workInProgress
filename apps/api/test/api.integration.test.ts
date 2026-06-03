@@ -33,6 +33,24 @@ interface DashboardResponse {
   requirementCounts: Record<string, number>;
 }
 
+interface DocumentResponse {
+  id: string;
+  projectId: string;
+  name: string;
+  documentType: string;
+  storageUri: string;
+  extractionStatus: string;
+  embeddingStatus: string;
+  chunks: Array<{
+    id: string;
+    sourceReference: {
+      artefactType: string;
+      artefactId: string;
+      label: string;
+    };
+  }>;
+}
+
 let app: INestApplication;
 let prisma: PrismaService;
 let baseUrl: string;
@@ -100,6 +118,26 @@ test("persists a project and versioned requirement through the HTTP API", async 
   assert.equal(projectList.body.length, 1);
   assert.equal(projectList.body[0]?.id, projectResult.body.id);
 
+  const documentResult = await requestJson<DocumentResponse>(`/api/projects/${projectResult.body.id}/documents`, {
+    method: "POST",
+    body: JSON.stringify({
+      name: "Payments discovery notes",
+      documentType: "text/markdown",
+      content: "# Payments discovery\n\nOperations needs clearer exception reasons."
+    })
+  });
+
+  assert.equal(documentResult.response.status, 201);
+  assert.equal(documentResult.body.extractionStatus, "queued");
+  assert.equal(documentResult.body.embeddingStatus, "pending");
+  assert.match(documentResult.body.storageUri, /^native:\/\/documents\//);
+  assert.equal("sourceText" in documentResult.body, false);
+  assert.deepEqual(documentResult.body.chunks, []);
+
+  const documentDetail = await requestJson<DocumentResponse>(`/api/documents/${documentResult.body.id}`);
+  assert.equal(documentDetail.response.status, 200);
+  assert.equal(documentDetail.body.name, "Payments discovery notes");
+
   const requirementResult = await requestJson<RequirementResponse>(
     `/api/projects/${projectResult.body.id}/requirements`,
     {
@@ -145,5 +183,5 @@ test("persists a project and versioned requirement through the HTTP API", async 
       projectId: projectResult.body.id
     }
   });
-  assert.equal(auditEventCount, 3);
+  assert.equal(auditEventCount, 4);
 });

@@ -11,7 +11,7 @@
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm build:packages && pnpm -r typecheck",
-    "test": "pnpm -r test",
+    "test": "pnpm --workspace-concurrency=1 -r test",
     "db:generate": "pnpm --filter @ba-workbench/database db:generate",
     "db:migrate": "pnpm --filter @ba-workbench/database db:migrate",
     "db:deploy": "pnpm --filter @ba-workbench/database db:deploy",

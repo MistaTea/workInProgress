@@ -273,19 +273,25 @@ model BaselineItem {
 }
 
 model Document {
-  id              String          @id @default(cuid())
-  projectId       String
-  name            String
-  documentType    String
-  storageUri      String
-  extractionStatus String         @default("pending")
-  version         Int             @default(1)
-  metadata        Json?
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
+  id               String          @id @default(cuid())
+  projectId        String
+  name             String
+  documentType     String
+  storageUri       String
+  sourceText       String?
+  extractionStatus String          @default("pending")
+  embeddingStatus  String          @default("pending")
+  extractionError  String?
+  embeddingError   String?
+  extractedAt      DateTime?
+  embeddedAt       DateTime?
+  version          Int             @default(1)
+  metadata         Json?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
 
-  project         Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  chunks          DocumentChunk[]
+  project          Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  chunks           DocumentChunk[]
 
   @@index([projectId])
 }

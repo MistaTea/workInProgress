@@ -52,6 +52,15 @@ Until authentication is implemented, the API creates a development workspace own
 
 The development identity is an interim boundary and must be replaced by authenticated user context before production use.
 
+## Document Intelligence
+
+The first native ingestion path supports plain text, Markdown, and transcript content. Creating a document stores a
+versioned `native://` source URI, queues extraction through Redis, and keeps source text out of API responses.
+
+Document chunks preserve character offsets so downstream AI drafts can cite stable `document_chunk` source references.
+The worker uses `text-embedding-3-small` with 1,536 dimensions when `OPENAI_API_KEY` is configured. Binary document
+uploads, object storage, PDF/DOCX extraction, and OCR remain future extraction adapters.
+
 ## Integration Tests
 
 The API integration test starts the real NestJS application and exercises project and requirement persistence against PostgreSQL.

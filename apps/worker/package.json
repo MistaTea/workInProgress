@@ -8,12 +8,13 @@
     "start": "node dist/main.js",
     "lint": "tsc -p tsconfig.json --noEmit",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "echo \"No tests yet for worker app\""
+    "test": "tsx --test test/*.test.ts"
   },
   "dependencies": {
     "@ba-workbench/ai-schemas": "workspace:*",
     "@ba-workbench/database": "workspace:*",
     "bullmq": "^5.34.2",
+    "openai": "^6.39.0",
     "tsx": "^4.19.2"
   },
   "devDependencies": {
