@@ -87,6 +87,13 @@ interface AiDraftResponse {
   }>;
 }
 
+interface AiDraftListItem {
+  id: string;
+  reviewStatus: string;
+  summary: string;
+  reviewSummary: AiDraftResponse["reviewSummary"];
+}
+
 let app: INestApplication;
 let prisma: PrismaService;
 let baseUrl: string;
@@ -271,6 +278,15 @@ test("persists a project and versioned requirement through the HTTP API", async 
   assert.equal(initialDraft.body.reviewStatus, "generated");
   assert.equal(initialDraft.body.reviewSummary.pendingCandidates, 2);
 
+  const initialDraftQueue = await requestJson<AiDraftListItem[]>(
+    `/api/projects/${projectResult.body.id}/ai/drafts`
+  );
+  assert.equal(initialDraftQueue.response.status, 200);
+  assert.equal(initialDraftQueue.body.length, 1);
+  assert.equal(initialDraftQueue.body[0]?.id, aiDraft.id);
+  assert.equal(initialDraftQueue.body[0]?.summary, "Operations needs clearer payment exception handling.");
+  assert.equal(initialDraftQueue.body[0]?.reviewSummary.pendingCandidates, 2);
+
   const acceptedDraft = await requestJson<AiDraftResponse>(
     `/api/projects/${projectResult.body.id}/ai/drafts/${aiDraft.id}/requirement-candidates/0/review`,
     {
@@ -346,6 +362,15 @@ test("persists a project and versioned requirement through the HTTP API", async 
   assert.equal(reviewedDraft.body.reviewSummary.pendingCandidates, 0);
   assert.ok(reviewedDraft.body.reviewedAt);
   assert.match(reviewedDraft.body.requirementCandidates[1]?.review?.comments ?? "", /operating procedure/);
+
+  const reviewedDraftQueue = await requestJson<AiDraftListItem[]>(
+    `/api/projects/${projectResult.body.id}/ai/drafts`
+  );
+  assert.equal(reviewedDraftQueue.response.status, 200);
+  assert.equal(reviewedDraftQueue.body[0]?.reviewStatus, "accepted_by_ba");
+  assert.equal(reviewedDraftQueue.body[0]?.reviewSummary.acceptedCandidates, 1);
+  assert.equal(reviewedDraftQueue.body[0]?.reviewSummary.rejectedCandidates, 1);
+  assert.equal(reviewedDraftQueue.body[0]?.reviewSummary.pendingCandidates, 0);
 
   const persistedAiDraft = await prisma.aiDraftOutput.findUniqueOrThrow({
     where: {

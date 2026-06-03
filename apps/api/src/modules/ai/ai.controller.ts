@@ -24,6 +24,11 @@ export class AiController {
     return this.ai.getJob(projectId, aiJobId);
   }
 
+  @Get("drafts")
+  listDrafts(@Param("projectId") projectId: string) {
+    return this.ai.listDrafts(projectId);
+  }
+
   @Get("drafts/:aiDraftOutputId")
   getDraft(@Param("projectId") projectId: string, @Param("aiDraftOutputId") aiDraftOutputId: string) {
     return this.ai.getDraft(projectId, aiDraftOutputId);

@@ -82,6 +82,9 @@ comments, reviewed payload, timestamps, and audit events.
 `accepted_by_ba` means the AI draft review is complete and at least one candidate was accepted; it does not mean the
 created requirements are stakeholder-approved or baselined.
 
+The web app exposes this workflow at `/reviews`. Set `NEXT_PUBLIC_API_BASE_URL` when the API is not running at the
+default `http://localhost:4000/api`.
+
 ## Integration Tests
 
 The integration tests exercise project, document, AI job, requirement, retrieval, and worker persistence against PostgreSQL.

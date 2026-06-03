@@ -49,10 +49,19 @@ export default function HomePage() {
           </div>
         </div>
         <nav className="nav-list">
-          {["Home", "Projects", "Requirements", "Documents", "Traceability", "Reviews", "Integrations", "Reports"].map(
+          {[
+            { label: "Home", href: "/" },
+            { label: "Projects", href: "#" },
+            { label: "Requirements", href: "#" },
+            { label: "Documents", href: "#" },
+            { label: "Traceability", href: "#" },
+            { label: "Reviews", href: "/reviews" },
+            { label: "Integrations", href: "#" },
+            { label: "Reports", href: "#" }
+          ].map(
             (item) => (
-              <a className={item === "Home" ? "active" : ""} href="#" key={item}>
-                {item}
+              <a className={item.label === "Home" ? "active" : ""} href={item.href} key={item.label}>
+                {item.label}
               </a>
             )
           )}
@@ -114,9 +123,9 @@ export default function HomePage() {
             <p>
               Drafts are held for BA review before approval, baselining, Jira sync, or Confluence publishing.
             </p>
-            <button className="button primary wide" type="button">
+            <a className="button primary wide" href="/reviews">
               Review AI drafts
-            </button>
+            </a>
           </article>
         </section>
 

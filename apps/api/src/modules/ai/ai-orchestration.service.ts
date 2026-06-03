@@ -26,6 +26,12 @@ export interface ReviewRequirementCandidateDto {
 
 const REQUIREMENT_CANDIDATE_ITEM_TYPE = "requirement_candidate";
 const REVIEWABLE_DRAFT_STATUSES = new Set(["generated", "under_ba_review"]);
+const REQUIREMENT_DRAFT_QUEUE_STATUSES = [
+  "generated",
+  "under_ba_review",
+  "accepted_by_ba",
+  "rejected_by_ba"
+] as const;
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Unknown queueing error.";
@@ -189,6 +195,45 @@ export class AiOrchestrationService {
     };
   }
 
+  async listDrafts(projectId: string) {
+    await this.workspaceContext.assertProjectAccess(projectId);
+    const drafts = await this.prisma.aiDraftOutput.findMany({
+      where: {
+        projectId,
+        outputType: "requirement_extraction",
+        reviewStatus: {
+          in: [...REQUIREMENT_DRAFT_QUEUE_STATUSES]
+        }
+      },
+      include: {
+        reviewItems: true
+      },
+      orderBy: {
+        createdAt: "desc"
+      }
+    });
+
+    return drafts.map((draft) => {
+      const extraction = this.parseRequirementExtractionDraft(draft);
+      const reviewSummary = this.summariseRequirementCandidateReviews(extraction.candidates.length, draft.reviewItems);
+
+      return {
+        id: draft.id,
+        aiJobId: draft.aiJobId,
+        outputType: draft.outputType,
+        reviewStatus: draft.reviewStatus,
+        promptVersion: draft.promptVersion,
+        model: draft.model,
+        confidence: draft.confidence,
+        createdAt: draft.createdAt,
+        reviewedAt: draft.reviewedAt,
+        summary: extraction.summary,
+        reviewModel: "ai_draft_requires_human_review",
+        reviewSummary
+      };
+    });
+  }
+
   async getDraft(projectId: string, aiDraftOutputId: string) {
     await this.workspaceContext.assertProjectAccess(projectId);
     const draft = await this.requireDraft(projectId, aiDraftOutputId);
@@ -197,19 +242,16 @@ export class AiOrchestrationService {
       (review) => review.itemType === REQUIREMENT_CANDIDATE_ITEM_TYPE
     );
     const reviewsByIndex = new Map(requirementCandidateReviews.map((review) => [review.itemIndex, review]));
-    const acceptedCandidates = requirementCandidateReviews.filter((review) => review.decision === "accepted").length;
-    const rejectedCandidates = requirementCandidateReviews.filter((review) => review.decision === "rejected").length;
+    const reviewSummary = this.summariseRequirementCandidateReviews(
+      extraction.candidates.length,
+      requirementCandidateReviews
+    );
 
     return {
       ...draft,
+      summary: extraction.summary,
       reviewModel: "ai_draft_requires_human_review",
-      reviewSummary: {
-        totalCandidates: extraction.candidates.length,
-        reviewedCandidates: requirementCandidateReviews.length,
-        acceptedCandidates,
-        rejectedCandidates,
-        pendingCandidates: Math.max(0, extraction.candidates.length - requirementCandidateReviews.length)
-      },
+      reviewSummary,
       requirementCandidates: extraction.candidates.map((candidate, candidateIndex) => ({
         candidateIndex,
         ...candidate,
@@ -462,5 +504,24 @@ export class AiOrchestrationService {
 
   private requirementCandidateKey(aiDraftOutputId: string, candidateIndex: number) {
     return `${aiDraftOutputId}:${REQUIREMENT_CANDIDATE_ITEM_TYPE}:${candidateIndex}`;
+  }
+
+  private summariseRequirementCandidateReviews(
+    totalCandidates: number,
+    reviewItems: Array<{ itemType: string; decision: AiDraftReviewDecision }>
+  ) {
+    const requirementCandidateReviews = reviewItems.filter(
+      (review) => review.itemType === REQUIREMENT_CANDIDATE_ITEM_TYPE
+    );
+    const acceptedCandidates = requirementCandidateReviews.filter((review) => review.decision === "accepted").length;
+    const rejectedCandidates = requirementCandidateReviews.filter((review) => review.decision === "rejected").length;
+
+    return {
+      totalCandidates,
+      reviewedCandidates: requirementCandidateReviews.length,
+      acceptedCandidates,
+      rejectedCandidates,
+      pendingCandidates: Math.max(0, totalCandidates - requirementCandidateReviews.length)
+    };
   }
 }
