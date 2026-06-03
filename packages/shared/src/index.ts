@@ -36,6 +36,8 @@ export type AiReviewStatus =
   | "published"
   | "superseded";
 
+export type AiDraftReviewDecision = "accepted" | "rejected";
+
 export type ApprovalDecision = "approved" | "changes_requested" | "rejected";
 
 export type TraceabilityLinkType =

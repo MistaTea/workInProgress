@@ -4,6 +4,7 @@ import type { AddressInfo } from "node:net";
 import { after, before, test } from "node:test";
 import type { INestApplication } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
+import type { RequirementExtraction } from "@ba-workbench/ai-schemas";
 import { AppModule } from "../src/modules/app.module";
 import { PrismaService } from "../src/modules/database/prisma.service";
 
@@ -26,6 +27,11 @@ interface RequirementResponse {
   versions?: Array<{
     version: number;
     statement: string;
+    sourceRefs?: Array<{
+      artefactType: string;
+      artefactId: string;
+      label: string;
+    }>;
   }>;
 }
 
@@ -58,6 +64,27 @@ interface AiJobResponse {
   status: string;
   reviewModel: string;
   outputs: unknown[];
+}
+
+interface AiDraftResponse {
+  id: string;
+  reviewStatus: string;
+  reviewedAt: string | null;
+  reviewSummary: {
+    totalCandidates: number;
+    reviewedCandidates: number;
+    acceptedCandidates: number;
+    rejectedCandidates: number;
+    pendingCandidates: number;
+  };
+  requirementCandidates: Array<{
+    candidateIndex: number;
+    review: {
+      decision: string;
+      comments: string | null;
+      createdRequirement: RequirementResponse | null;
+    } | null;
+  }>;
 }
 
 let app: INestApplication;
@@ -156,7 +183,7 @@ test("persists a project and versioned requirement through the HTTP API", async 
       embeddingStatus: "skipped"
     }
   });
-  await prisma.documentChunk.create({
+  const documentChunk = await prisma.documentChunk.create({
     data: {
       documentId: documentResult.body.id,
       chunkIndex: 0,
@@ -191,6 +218,169 @@ test("persists a project and versioned requirement through the HTTP API", async 
   assert.equal(aiJobDetail.body.id, aiJobResult.body.id);
   assert.equal(aiJobDetail.body.reviewModel, "ai_draft_requires_human_review");
 
+  const sourceReference = {
+    artefactType: "document_chunk",
+    artefactId: documentChunk.id,
+    label: documentResult.body.name,
+    excerpt: documentChunk.chunkText,
+    location: "Characters 1-51"
+  };
+  const aiDraft = await prisma.aiDraftOutput.create({
+    data: {
+      projectId: projectResult.body.id,
+      aiJobId: aiJobResult.body.id,
+      outputType: "requirement_extraction",
+      reviewStatus: "generated",
+      promptVersion: "integration-test",
+      model: "integration-test-model",
+      sourceRefs: [sourceReference],
+      payload: {
+        summary: "Operations needs clearer payment exception handling.",
+        candidates: [
+          {
+            title: "Capture payment exception reason",
+            statement: "The system must capture a standardised payment exception reason.",
+            type: "functional",
+            priority: "must",
+            rationale: "Operations needs consistent reporting.",
+            assumptions: [],
+            openQuestions: [],
+            sourceReferences: [sourceReference]
+          },
+          {
+            title: "Review payment exception reports",
+            statement: "Operations should review payment exception reporting each month.",
+            type: "reporting",
+            priority: "could",
+            assumptions: [],
+            openQuestions: [],
+            sourceReferences: [sourceReference]
+          }
+        ],
+        risks: [],
+        decisions: [],
+        actions: []
+      }
+    }
+  });
+
+  const initialDraft = await requestJson<AiDraftResponse>(
+    `/api/projects/${projectResult.body.id}/ai/drafts/${aiDraft.id}`
+  );
+  assert.equal(initialDraft.response.status, 200);
+  assert.equal(initialDraft.body.reviewStatus, "generated");
+  assert.equal(initialDraft.body.reviewSummary.pendingCandidates, 2);
+
+  const acceptedDraft = await requestJson<AiDraftResponse>(
+    `/api/projects/${projectResult.body.id}/ai/drafts/${aiDraft.id}/requirement-candidates/0/review`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        decision: "accepted",
+        comments: "Confirmed with operations.",
+        requirement: {
+          statement: "The system must capture a standardised payment exception reason when validation fails."
+        }
+      })
+    }
+  );
+  assert.equal(acceptedDraft.response.status, 201);
+  assert.equal(acceptedDraft.body.reviewStatus, "under_ba_review");
+  assert.equal(acceptedDraft.body.reviewSummary.acceptedCandidates, 1);
+  assert.equal(acceptedDraft.body.reviewSummary.pendingCandidates, 1);
+
+  const acceptedRequirement = acceptedDraft.body.requirementCandidates[0]?.review?.createdRequirement;
+  assert.ok(acceptedRequirement);
+  assert.equal(acceptedRequirement.reference, "REQ-001");
+  assert.equal(acceptedRequirement.status, "draft");
+  assert.match(acceptedRequirement.statement, /when validation fails/);
+
+  const acceptedRequirementDetail = await requestJson<RequirementResponse>(
+    `/api/requirements/${acceptedRequirement.id}`
+  );
+  assert.equal(acceptedRequirementDetail.response.status, 200);
+  assert.equal(acceptedRequirementDetail.body.versions?.[0]?.sourceRefs?.[0]?.artefactId, documentChunk.id);
+
+  const updatedAcceptedRequirement = await requestJson<RequirementResponse>(
+    `/api/requirements/${acceptedRequirement.id}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        rationale: "Confirmed as a system requirement during BA review."
+      })
+    }
+  );
+  assert.equal(updatedAcceptedRequirement.response.status, 200);
+  assert.equal(updatedAcceptedRequirement.body.currentVersion, 2);
+
+  const updatedAcceptedRequirementDetail = await requestJson<RequirementResponse>(
+    `/api/requirements/${acceptedRequirement.id}`
+  );
+  assert.equal(updatedAcceptedRequirementDetail.body.versions?.[0]?.sourceRefs?.[0]?.artefactId, documentChunk.id);
+
+  const invalidRejection = await requestJson<unknown>(
+    `/api/projects/${projectResult.body.id}/ai/drafts/${aiDraft.id}/requirement-candidates/1/review`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        decision: "rejected"
+      })
+    }
+  );
+  assert.equal(invalidRejection.response.status, 400);
+
+  const reviewedDraft = await requestJson<AiDraftResponse>(
+    `/api/projects/${projectResult.body.id}/ai/drafts/${aiDraft.id}/requirement-candidates/1/review`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        decision: "rejected",
+        comments: "This is an operating procedure, not a system requirement."
+      })
+    }
+  );
+  assert.equal(reviewedDraft.response.status, 201);
+  assert.equal(reviewedDraft.body.reviewStatus, "accepted_by_ba");
+  assert.equal(reviewedDraft.body.reviewSummary.reviewedCandidates, 2);
+  assert.equal(reviewedDraft.body.reviewSummary.rejectedCandidates, 1);
+  assert.equal(reviewedDraft.body.reviewSummary.pendingCandidates, 0);
+  assert.ok(reviewedDraft.body.reviewedAt);
+  assert.match(reviewedDraft.body.requirementCandidates[1]?.review?.comments ?? "", /operating procedure/);
+
+  const persistedAiDraft = await prisma.aiDraftOutput.findUniqueOrThrow({
+    where: {
+      id: aiDraft.id
+    }
+  });
+  const originalAiPayload = persistedAiDraft.payload as unknown as RequirementExtraction;
+  assert.equal(
+    originalAiPayload.candidates[0]?.statement,
+    "The system must capture a standardised payment exception reason."
+  );
+  assert.equal(await prisma.aiDraftReviewItem.count({ where: { aiDraftOutputId: aiDraft.id } }), 2);
+
+  const duplicateReview = await requestJson<unknown>(
+    `/api/projects/${projectResult.body.id}/ai/drafts/${aiDraft.id}/requirement-candidates/0/review`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        decision: "accepted"
+      })
+    }
+  );
+  assert.equal(duplicateReview.response.status, 409);
+  assert.equal(
+    await prisma.traceabilityLink.count({
+      where: {
+        projectId: projectResult.body.id,
+        sourceId: acceptedRequirement.id,
+        targetType: "ai_draft_requirement_candidate",
+        linkType: "derived_from"
+      }
+    }),
+    1
+  );
+
   const requirementResult = await requestJson<RequirementResponse>(
     `/api/projects/${projectResult.body.id}/requirements`,
     {
@@ -206,7 +396,7 @@ test("persists a project and versioned requirement through the HTTP API", async 
   );
 
   assert.equal(requirementResult.response.status, 201);
-  assert.equal(requirementResult.body.reference, "REQ-001");
+  assert.equal(requirementResult.body.reference, "REQ-002");
   assert.equal(requirementResult.body.currentVersion, 1);
 
   const updateResult = await requestJson<RequirementResponse>(`/api/requirements/${requirementResult.body.id}`, {
@@ -236,5 +426,5 @@ test("persists a project and versioned requirement through the HTTP API", async 
       projectId: projectResult.body.id
     }
   });
-  assert.equal(auditEventCount, 5);
+  assert.equal(auditEventCount, 9);
 });

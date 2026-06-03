@@ -1,4 +1,5 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
+import type { Prisma } from "@ba-workbench/database";
 import type { RequirementStatus, RequirementSummary, RequirementType } from "@ba-workbench/shared";
 import { PrismaService } from "../database/prisma.service";
 import { WorkspaceContextService } from "../database/workspace-context.service";
@@ -14,6 +15,13 @@ export interface CreateRequirementDto {
 export type UpdateRequirementDto = Partial<CreateRequirementDto> & {
   status?: RequirementStatus;
 };
+
+export interface RequirementCreationContext {
+  sourceRefs?: Prisma.InputJsonValue;
+  auditAction?: string;
+  auditSummary?: (reference: string) => string;
+  auditMetadata?: Prisma.InputJsonValue;
+}
 
 @Injectable()
 export class RequirementsService {
@@ -33,49 +41,63 @@ export class RequirementsService {
 
   async create(projectId: string, input: CreateRequirementDto) {
     const { owner } = await this.workspaceContext.assertProjectAccess(projectId);
-    const requirementCount = await this.prisma.requirement.count({ where: { projectId } });
-    const reference = `REQ-${String(requirementCount + 1).padStart(3, "0")}`;
 
-    return this.prisma.$transaction(async (transaction) => {
-      const requirement = await transaction.requirement.create({
-        data: {
-          projectId,
-          reference,
-          title: input.title,
-          statement: input.statement,
-          type: input.type,
-          priority: input.priority ?? "should",
-          ...(input.rationale !== undefined ? { rationale: input.rationale } : {}),
-          status: "draft",
-          ownerId: owner.id,
-          versions: {
-            create: {
-              version: 1,
-              title: input.title,
-              statement: input.statement,
-              type: input.type,
-              priority: input.priority ?? "should",
-              ...(input.rationale !== undefined ? { rationale: input.rationale } : {}),
-              createdById: owner.id
-            }
+    return this.prisma.$transaction((transaction) =>
+      this.createDraftInTransaction(transaction, projectId, owner.id, input)
+    );
+  }
+
+  async createDraftInTransaction(
+    transaction: Prisma.TransactionClient,
+    projectId: string,
+    ownerId: string,
+    input: CreateRequirementDto,
+    context: RequirementCreationContext = {}
+  ) {
+    const requirementCount = await transaction.requirement.count({ where: { projectId } });
+    const reference = `REQ-${String(requirementCount + 1).padStart(3, "0")}`;
+    const priority = input.priority ?? "should";
+
+    const requirement = await transaction.requirement.create({
+      data: {
+        projectId,
+        reference,
+        title: input.title,
+        statement: input.statement,
+        type: input.type,
+        priority,
+        ...(input.rationale !== undefined ? { rationale: input.rationale } : {}),
+        status: "draft",
+        ownerId,
+        versions: {
+          create: {
+            version: 1,
+            title: input.title,
+            statement: input.statement,
+            type: input.type,
+            priority,
+            ...(input.rationale !== undefined ? { rationale: input.rationale } : {}),
+            ...(context.sourceRefs !== undefined ? { sourceRefs: context.sourceRefs } : {}),
+            createdById: ownerId
           }
         }
-      });
-
-      await transaction.auditEvent.create({
-        data: {
-          projectId,
-          actorId: owner.id,
-          actorType: "user",
-          action: "requirement.created",
-          artefactType: "requirement",
-          artefactId: requirement.id,
-          summary: `Created requirement ${requirement.reference}.`
-        }
-      });
-
-      return requirement;
+      }
     });
+
+    await transaction.auditEvent.create({
+      data: {
+        projectId,
+        actorId: ownerId,
+        actorType: "user",
+        action: context.auditAction ?? "requirement.created",
+        artefactType: "requirement",
+        artefactId: requirement.id,
+        summary: context.auditSummary?.(requirement.reference) ?? `Created requirement ${requirement.reference}.`,
+        ...(context.auditMetadata !== undefined ? { metadata: context.auditMetadata } : {})
+      }
+    });
+
+    return requirement;
   }
 
   async get(requirementId: string) {
@@ -112,6 +134,7 @@ export class RequirementsService {
     const nextType = input.type ?? existing.type;
     const nextPriority = input.priority ?? existing.priority;
     const nextRationale = input.rationale ?? existing.rationale;
+    const nextSourceRefs = existing.versions[0]?.sourceRefs;
 
     return this.prisma.$transaction(async (transaction) => {
       const requirement = await transaction.requirement.update({
@@ -136,6 +159,9 @@ export class RequirementsService {
           type: nextType,
           priority: nextPriority,
           rationale: nextRationale,
+          ...(nextSourceRefs !== null && nextSourceRefs !== undefined
+            ? { sourceRefs: nextSourceRefs as Prisma.InputJsonValue }
+            : {}),
           createdById: owner.id
         }
       });

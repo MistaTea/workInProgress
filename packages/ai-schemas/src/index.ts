@@ -53,6 +53,34 @@ export const requirementExtractionSchema = z.object({
   )
 });
 
+const requirementCandidateEditsSchema = z
+  .object({
+    title: z.string().trim().min(3).max(300).optional(),
+    statement: z.string().trim().min(10).max(10_000).optional(),
+    type: z.enum(["business", "functional", "non_functional", "transition", "reporting", "data", "integration"]).optional(),
+    priority: z.enum(["must", "should", "could", "wont"]).optional(),
+    rationale: z.string().trim().min(1).max(4_000).nullable().optional()
+  })
+  .strict();
+
+export const reviewRequirementCandidateInputSchema = z.discriminatedUnion("decision", [
+  z
+    .object({
+      candidateIndex: z.number().int().min(0),
+      decision: z.literal("accepted"),
+      comments: z.string().trim().min(1).max(4_000).optional(),
+      requirement: requirementCandidateEditsSchema.optional()
+    })
+    .strict(),
+  z
+    .object({
+      candidateIndex: z.number().int().min(0),
+      decision: z.literal("rejected"),
+      comments: z.string().trim().min(1).max(4_000)
+    })
+    .strict()
+]);
+
 const structuredDocumentChunkReferenceSchema = z.object({
   artefactType: z.literal("document_chunk"),
   artefactId: z.string()
@@ -141,6 +169,7 @@ export const testScenarioGenerationSchema = z.object({
 export type RequirementExtraction = z.infer<typeof requirementExtractionSchema>;
 export type RequirementExtractionStructuredOutput = z.infer<typeof requirementExtractionStructuredOutputSchema>;
 export type ExtractRequirementsJobInput = z.infer<typeof extractRequirementsJobInputSchema>;
+export type ReviewRequirementCandidateInput = z.infer<typeof reviewRequirementCandidateInputSchema>;
 export type RequirementQualityReview = z.infer<typeof requirementQualityReviewSchema>;
 export type UserStoryGeneration = z.infer<typeof userStoryGenerationSchema>;
 export type TestScenarioGeneration = z.infer<typeof testScenarioGenerationSchema>;

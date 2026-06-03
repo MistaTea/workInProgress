@@ -71,6 +71,17 @@ result as an `AiDraftOutput` with review status `generated`; it never creates ap
 
 The default requirement extraction model is `gpt-5.5` and can be changed with `OPENAI_REQUIREMENT_EXTRACTION_MODEL`.
 
+## BA Review And Requirement Conversion
+
+Requirement extraction drafts support per-candidate BA review. Accepting a candidate creates a normal versioned
+requirement with status `draft`, preserves the candidate's document-chunk source references, and records a
+`derived_from` traceability link. Source references continue into later requirement versions. Rejecting a candidate
+requires a reason. Human decisions are stored separately from the immutable AI output, with reviewer identity,
+comments, reviewed payload, timestamps, and audit events.
+
+`accepted_by_ba` means the AI draft review is complete and at least one candidate was accepted; it does not mean the
+created requirements are stakeholder-approved or baselined.
+
 ## Integration Tests
 
 The integration tests exercise project, document, AI job, requirement, retrieval, and worker persistence against PostgreSQL.

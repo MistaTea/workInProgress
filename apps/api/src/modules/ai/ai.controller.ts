@@ -1,5 +1,9 @@
 import { Body, Controller, Get, Inject, Param, Post } from "@nestjs/common";
-import { AiOrchestrationService, type CreateAiJobDto } from "./ai-orchestration.service";
+import {
+  AiOrchestrationService,
+  type CreateAiJobDto,
+  type ReviewRequirementCandidateDto
+} from "./ai-orchestration.service";
 
 @Controller("projects/:projectId/ai")
 export class AiController {
@@ -18,5 +22,20 @@ export class AiController {
   @Get("jobs/:aiJobId")
   getJob(@Param("projectId") projectId: string, @Param("aiJobId") aiJobId: string) {
     return this.ai.getJob(projectId, aiJobId);
+  }
+
+  @Get("drafts/:aiDraftOutputId")
+  getDraft(@Param("projectId") projectId: string, @Param("aiDraftOutputId") aiDraftOutputId: string) {
+    return this.ai.getDraft(projectId, aiDraftOutputId);
+  }
+
+  @Post("drafts/:aiDraftOutputId/requirement-candidates/:candidateIndex/review")
+  reviewRequirementCandidate(
+    @Param("projectId") projectId: string,
+    @Param("aiDraftOutputId") aiDraftOutputId: string,
+    @Param("candidateIndex") candidateIndex: string,
+    @Body() body: ReviewRequirementCandidateDto
+  ) {
+    return this.ai.reviewRequirementCandidate(projectId, aiDraftOutputId, candidateIndex, body);
   }
 }

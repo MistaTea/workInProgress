@@ -53,6 +53,11 @@ enum AiReviewStatus {
   superseded
 }
 
+enum AiDraftReviewDecision {
+  accepted
+  rejected
+}
+
 enum ApprovalDecision {
   approved
   changes_requested
@@ -127,6 +132,7 @@ model User {
   ownedProjects  Project[]     @relation("ProjectOwner")
   memberships    ProjectMember[]
   auditEvents    AuditEvent[]
+  aiDraftReviews AiDraftReviewItem[]
 }
 
 model Project {
@@ -151,6 +157,7 @@ model Project {
   baselines        RequirementBaseline[]
   aiJobs           AiJob[]
   aiDraftOutputs   AiDraftOutput[]
+  aiDraftReviews   AiDraftReviewItem[]
   epics            Epic[]
   userStories      UserStory[]
   testScenarios    TestScenario[]
@@ -216,6 +223,7 @@ model Requirement {
   project         Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
   versions        RequirementVersion[]
   baselineItems   BaselineItem[]
+  aiDraftReviewSource AiDraftReviewItem?
 
   @@unique([projectId, reference])
   @@index([projectId, status])
@@ -356,9 +364,32 @@ model AiDraftOutput {
 
   project         Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
   aiJob           AiJob?         @relation(fields: [aiJobId], references: [id], onDelete: SetNull)
+  reviewItems     AiDraftReviewItem[]
 
   @@index([projectId, outputType])
   @@index([reviewStatus])
+}
+
+model AiDraftReviewItem {
+  id                   String                @id @default(cuid())
+  projectId            String
+  aiDraftOutputId      String
+  itemType             String
+  itemIndex            Int
+  decision             AiDraftReviewDecision
+  reviewedById         String
+  comments             String?
+  reviewedPayload      Json?
+  createdRequirementId String?               @unique
+  reviewedAt           DateTime              @default(now())
+
+  project              Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  aiDraftOutput        AiDraftOutput         @relation(fields: [aiDraftOutputId], references: [id], onDelete: Cascade)
+  reviewedBy           User                  @relation(fields: [reviewedById], references: [id])
+  createdRequirement   Requirement?          @relation(fields: [createdRequirementId], references: [id], onDelete: SetNull)
+
+  @@unique([aiDraftOutputId, itemType, itemIndex])
+  @@index([projectId, decision])
 }
 
 model Epic {
