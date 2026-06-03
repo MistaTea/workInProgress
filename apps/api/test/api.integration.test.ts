@@ -61,7 +61,7 @@ before(async () => {
   process.env.DEFAULT_OWNER_NAME = "Integration Test BA";
   process.env.DEFAULT_OWNER_EMAIL = "integration-test@ba-workbench.local";
 
-  app = await NestFactory.create(AppModule, { logger: false });
+  app = await NestFactory.create(AppModule, { logger: ["error"] });
   app.setGlobalPrefix("api");
   await app.listen(0, "127.0.0.1");
 
@@ -87,7 +87,11 @@ test("persists a project and versioned requirement through the HTTP API", async 
     })
   });
 
-  assert.equal(projectResult.response.status, 201);
+  assert.equal(
+    projectResult.response.status,
+    201,
+    `Expected project creation to succeed: ${JSON.stringify(projectResult.body)}`
+  );
   assert.equal(projectResult.body.name, "Payments modernisation");
   assert.deepEqual(projectResult.body.objectives, ["Reduce rework", "Improve traceability"]);
 

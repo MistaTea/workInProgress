@@ -40,7 +40,7 @@ The API uses PostgreSQL through Prisma. For local development:
 docker compose -f infra/docker/docker-compose.local.yml up -d
 cp .env.example .env
 pnpm install
-pnpm db:push
+pnpm db:deploy
 pnpm dev
 ```
 
@@ -59,6 +59,6 @@ The API integration test starts the real NestJS application and exercises projec
 ```bash
 docker compose -f infra/docker/docker-compose.local.yml up -d
 cp .env.example .env
-pnpm db:push
+pnpm db:deploy
 pnpm test
 ```

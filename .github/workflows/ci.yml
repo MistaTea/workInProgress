@@ -53,22 +53,8 @@ jobs:
       - name: Validate Prisma schema
         run: pnpm db:validate
 
-      - name: Generate initial migration artifact
-        run: |
-          mkdir -p generated-migration
-          pnpm --filter @ba-workbench/database exec prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script > generated-migration/migration.sql
-
-      - name: Upload initial migration artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: initial-prisma-migration
-          path: generated-migration/migration.sql
-
-      - name: Enable pgvector extension
-        run: psql "$DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS vector;"
-
-      - name: Apply schema for integration tests
-        run: pnpm db:push
+      - name: Apply database migrations
+        run: pnpm db:deploy
 
       - name: Typecheck
         run: pnpm typecheck
