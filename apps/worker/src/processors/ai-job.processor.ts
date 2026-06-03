@@ -112,6 +112,12 @@ function buildExtractionPrompt(
     .join("\n");
 }
 
+function requirementExtractionTextFormat() {
+  // The schema is exported from a workspace package, so avoid expanding Zod's type identity through the SDK generic.
+  const schema = requirementExtractionStructuredOutputSchema as unknown as Parameters<typeof zodTextFormat>[0];
+  return zodTextFormat(schema, "requirement_extraction");
+}
+
 class OpenAiRequirementExtractionProvider implements RequirementExtractionProvider {
   constructor(
     private readonly client: OpenAI,
@@ -138,7 +144,7 @@ class OpenAiRequirementExtractionProvider implements RequirementExtractionProvid
         }
       ],
       text: {
-        format: zodTextFormat(requirementExtractionStructuredOutputSchema, "requirement_extraction")
+        format: requirementExtractionTextFormat()
       }
     });
 
@@ -146,8 +152,9 @@ class OpenAiRequirementExtractionProvider implements RequirementExtractionProvid
       throw new Error("The AI provider returned no parsed requirement extraction output.");
     }
 
+    const output = requirementExtractionStructuredOutputSchema.parse(response.output_parsed);
     return {
-      output: response.output_parsed,
+      output,
       ...(response.usage
         ? {
             tokenUsage: {
