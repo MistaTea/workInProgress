@@ -1,14 +1,20 @@
-import { type Processor, Worker } from "bullmq";
-import IORedis from "ioredis";
+import { type ConnectionOptions, type Processor, Worker } from "bullmq";
 import { handleAiJob } from "./processors/ai-job.processor";
 import { handleConfluenceSyncJob } from "./processors/confluence-sync.processor";
 import { handleDocumentIngestionJob } from "./processors/document-ingestion.processor";
 import { handleJiraSyncJob } from "./processors/jira-sync.processor";
 
 const redisUrl = process.env.REDIS_URL ?? "redis://localhost:6379";
-const connection = new IORedis(redisUrl, {
-  maxRetriesPerRequest: null
-});
+const parsedRedisUrl = new URL(redisUrl);
+const connection: ConnectionOptions = {
+  host: parsedRedisUrl.hostname,
+  port: Number(parsedRedisUrl.port || "6379"),
+  db: Number(parsedRedisUrl.pathname.slice(1) || "0"),
+  maxRetriesPerRequest: null,
+  ...(parsedRedisUrl.username ? { username: decodeURIComponent(parsedRedisUrl.username) } : {}),
+  ...(parsedRedisUrl.password ? { password: decodeURIComponent(parsedRedisUrl.password) } : {}),
+  ...(parsedRedisUrl.protocol === "rediss:" ? { tls: {} } : {})
+};
 
 function registerWorker<DataType>(queueName: string, processor: Processor<DataType>) {
   const worker = new Worker<DataType>(queueName, processor, { connection });

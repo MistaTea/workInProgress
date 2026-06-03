@@ -14,7 +14,6 @@
     "@ba-workbench/ai-schemas": "workspace:*",
     "@ba-workbench/database": "workspace:*",
     "bullmq": "^5.34.2",
-    "ioredis": "^5.4.2",
     "tsx": "^4.19.2"
   },
   "devDependencies": {
