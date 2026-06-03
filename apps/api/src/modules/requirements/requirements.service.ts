@@ -1,11 +1,14 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import type { RequirementStatus, RequirementSummary, RequirementType } from "@ba-workbench/shared";
+import { PrismaService } from "../database/prisma.service";
+import { WorkspaceContextService } from "../database/workspace-context.service";
 
 export interface CreateRequirementDto {
   title: string;
   statement: string;
   type: RequirementType;
   priority?: RequirementSummary["priority"];
+  rationale?: string;
 }
 
 export type UpdateRequirementDto = Partial<CreateRequirementDto> & {
@@ -14,51 +17,146 @@ export type UpdateRequirementDto = Partial<CreateRequirementDto> & {
 
 @Injectable()
 export class RequirementsService {
-  private readonly requirements: RequirementSummary[] = [
-    {
-      id: "req-001",
-      reference: "REQ-001",
-      title: "Capture payment exception reason",
-      statement: "The system must capture a standardised exception reason when a payment fails validation.",
-      type: "functional",
-      status: "draft",
-      priority: "must",
-      qualityScore: 84,
-      sourceReferences: []
-    }
-  ];
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly workspaceContext: WorkspaceContextService
+  ) {}
 
-  listByProject(_projectId: string) {
-    return this.requirements;
+  async listByProject(projectId: string) {
+    await this.workspaceContext.assertProjectAccess(projectId);
+
+    return this.prisma.requirement.findMany({
+      where: { projectId },
+      orderBy: { reference: "asc" }
+    });
   }
 
-  create(_projectId: string, input: CreateRequirementDto) {
-    const requirement: RequirementSummary = {
-      id: `req-${crypto.randomUUID()}`,
-      reference: `REQ-${String(this.requirements.length + 1).padStart(3, "0")}`,
-      title: input.title,
-      statement: input.statement,
-      type: input.type,
-      status: "draft",
-      priority: input.priority ?? "should",
-      sourceReferences: []
-    };
+  async create(projectId: string, input: CreateRequirementDto) {
+    const { owner } = await this.workspaceContext.assertProjectAccess(projectId);
+    const requirementCount = await this.prisma.requirement.count({ where: { projectId } });
+    const reference = `REQ-${String(requirementCount + 1).padStart(3, "0")}`;
 
-    this.requirements.push(requirement);
-    return requirement;
+    return this.prisma.$transaction(async (transaction) => {
+      const requirement = await transaction.requirement.create({
+        data: {
+          projectId,
+          reference,
+          title: input.title,
+          statement: input.statement,
+          type: input.type,
+          priority: input.priority ?? "should",
+          ...(input.rationale !== undefined ? { rationale: input.rationale } : {}),
+          status: "draft",
+          ownerId: owner.id,
+          versions: {
+            create: {
+              version: 1,
+              title: input.title,
+              statement: input.statement,
+              type: input.type,
+              priority: input.priority ?? "should",
+              ...(input.rationale !== undefined ? { rationale: input.rationale } : {}),
+              createdById: owner.id
+            }
+          }
+        }
+      });
+
+      await transaction.auditEvent.create({
+        data: {
+          projectId,
+          actorId: owner.id,
+          actorType: "user",
+          action: "requirement.created",
+          artefactType: "requirement",
+          artefactId: requirement.id,
+          summary: `Created requirement ${requirement.reference}.`
+        }
+      });
+
+      return requirement;
+    });
   }
 
-  get(requirementId: string) {
-    const requirement = this.requirements.find((item) => item.id === requirementId);
+  async get(requirementId: string) {
+    const owner = await this.workspaceContext.getOwner();
+    const requirement = await this.prisma.requirement.findFirst({
+      where: {
+        id: requirementId,
+        project: {
+          organisationId: owner.organisationId
+        }
+      },
+      include: {
+        versions: {
+          orderBy: {
+            version: "desc"
+          }
+        }
+      }
+    });
+
     if (!requirement) {
       throw new NotFoundException(`Requirement ${requirementId} was not found.`);
     }
+
     return requirement;
   }
 
-  update(requirementId: string, input: UpdateRequirementDto) {
-    const requirement = this.get(requirementId);
-    Object.assign(requirement, input);
-    return requirement;
+  async update(requirementId: string, input: UpdateRequirementDto) {
+    const existing = await this.get(requirementId);
+    const owner = await this.workspaceContext.getOwner();
+    const nextVersion = existing.currentVersion + 1;
+    const nextTitle = input.title ?? existing.title;
+    const nextStatement = input.statement ?? existing.statement;
+    const nextType = input.type ?? existing.type;
+    const nextPriority = input.priority ?? existing.priority;
+    const nextRationale = input.rationale ?? existing.rationale;
+
+    return this.prisma.$transaction(async (transaction) => {
+      const requirement = await transaction.requirement.update({
+        where: { id: requirementId },
+        data: {
+          ...(input.title !== undefined ? { title: input.title } : {}),
+          ...(input.statement !== undefined ? { statement: input.statement } : {}),
+          ...(input.type !== undefined ? { type: input.type } : {}),
+          ...(input.priority !== undefined ? { priority: input.priority } : {}),
+          ...(input.rationale !== undefined ? { rationale: input.rationale } : {}),
+          ...(input.status !== undefined ? { status: input.status } : {}),
+          currentVersion: nextVersion
+        }
+      });
+
+      await transaction.requirementVersion.create({
+        data: {
+          requirementId,
+          version: nextVersion,
+          title: nextTitle,
+          statement: nextStatement,
+          type: nextType,
+          priority: nextPriority,
+          rationale: nextRationale,
+          createdById: owner.id
+        }
+      });
+
+      await transaction.auditEvent.create({
+        data: {
+          projectId: existing.projectId,
+          actorId: owner.id,
+          actorType: "user",
+          action: "requirement.updated",
+          artefactType: "requirement",
+          artefactId: requirement.id,
+          summary: `Updated requirement ${requirement.reference} to version ${nextVersion}.`,
+          metadata: {
+            version: nextVersion,
+            changedFields: Object.keys(input)
+          }
+        }
+      });
+
+      return requirement;
+    });
   }
 }

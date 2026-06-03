@@ -5,6 +5,7 @@ import { AppModule } from "./modules/app.module";
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { cors: true });
   app.setGlobalPrefix("api");
+  app.enableShutdownHooks();
 
   const port = Number(process.env.PORT ?? 4000);
   await app.listen(port);

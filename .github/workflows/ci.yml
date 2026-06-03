@@ -13,6 +13,8 @@ jobs:
     name: Typecheck and build
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ba_workbench
 
     steps:
       - name: Checkout
@@ -33,6 +35,9 @@ jobs:
 
       - name: Generate Prisma client
         run: pnpm --filter @ba-workbench/database db:generate
+
+      - name: Validate Prisma schema
+        run: pnpm db:validate
 
       - name: Typecheck
         run: pnpm typecheck

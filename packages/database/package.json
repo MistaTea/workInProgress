@@ -2,13 +2,15 @@
   "name": "@ba-workbench/database",
   "version": "0.1.0",
   "private": true,
-  "type": "module",
+  "type": "commonjs",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "prisma generate && tsc -p tsconfig.json",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
+    "db:push": "prisma db push",
+    "db:validate": "prisma validate",
     "lint": "tsc -p tsconfig.json --noEmit",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "echo \"No tests yet for database package\""

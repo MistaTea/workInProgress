@@ -31,3 +31,23 @@ The MVP focuses on:
 - `packages/shared`: Shared domain types and constants
 - `packages/ai-schemas`: Structured AI output schemas
 - `packages/database`: Prisma schema and database client boundary
+
+## Local Database
+
+The API uses PostgreSQL through Prisma. For local development:
+
+```bash
+docker compose -f infra/docker/docker-compose.local.yml up -d
+cp .env.example .env
+pnpm install
+pnpm db:push
+pnpm dev
+```
+
+Until authentication is implemented, the API creates a development workspace owner from:
+
+- `DEFAULT_ORGANISATION_NAME`
+- `DEFAULT_OWNER_NAME`
+- `DEFAULT_OWNER_EMAIL`
+
+The development identity is an interim boundary and must be replaced by authenticated user context before production use.

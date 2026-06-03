@@ -157,6 +157,7 @@ model Project {
   risks            Risk[]
   decisions        Decision[]
   traceability     TraceabilityLink[]
+  integrations     IntegrationConnection[]
   auditEvents      AuditEvent[]
 
   @@index([organisationId])
@@ -520,6 +521,7 @@ model ApprovalEvidence {
 
 model IntegrationConnection {
   id          String       @id @default(cuid())
+  projectId   String
   provider    SyncProvider
   name        String
   authRef     String
@@ -529,7 +531,10 @@ model IntegrationConnection {
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 
+  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
   mappings    ExternalSyncMapping[]
+
+  @@index([projectId, provider])
 }
 
 model ExternalSyncMapping {

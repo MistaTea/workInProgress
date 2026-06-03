@@ -4,15 +4,18 @@
   "private": true,
   "description": "AI-powered Senior Business Analyst Workbench monorepo.",
   "scripts": {
-    "dev": "pnpm --parallel --filter @ba-workbench/web --filter @ba-workbench/api dev",
-    "dev:web": "pnpm --filter @ba-workbench/web dev",
-    "dev:api": "pnpm --filter @ba-workbench/api dev",
+    "build:packages": "pnpm --filter @ba-workbench/shared build && pnpm --filter @ba-workbench/ai-schemas build && pnpm --filter @ba-workbench/database build",
+    "dev": "pnpm build:packages && pnpm --parallel --filter @ba-workbench/web --filter @ba-workbench/api dev",
+    "dev:web": "pnpm build:packages && pnpm --filter @ba-workbench/web dev",
+    "dev:api": "pnpm build:packages && pnpm --filter @ba-workbench/api dev",
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",
-    "typecheck": "pnpm -r typecheck",
+    "typecheck": "pnpm build:packages && pnpm -r typecheck",
     "test": "pnpm -r test",
     "db:generate": "pnpm --filter @ba-workbench/database db:generate",
-    "db:migrate": "pnpm --filter @ba-workbench/database db:migrate"
+    "db:migrate": "pnpm --filter @ba-workbench/database db:migrate",
+    "db:push": "pnpm --filter @ba-workbench/database db:push",
+    "db:validate": "pnpm --filter @ba-workbench/database db:validate"
   },
   "engines": {
     "node": ">=20.0.0",

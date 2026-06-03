@@ -1,4 +1,6 @@
 import { Injectable } from "@nestjs/common";
+import { PrismaService } from "../database/prisma.service";
+import { WorkspaceContextService } from "../database/workspace-context.service";
 
 export interface CreateProjectDto {
   name: string;
@@ -6,57 +8,129 @@ export interface CreateProjectDto {
   objectives?: string[];
 }
 
-interface ProjectRecord extends CreateProjectDto {
-  id: string;
-  status: "draft" | "active";
-  createdAt: string;
-}
-
 @Injectable()
 export class ProjectsService {
-  private readonly projects: ProjectRecord[] = [
-    {
-      id: "project-demo-payments",
-      name: "Payments modernisation",
-      problemStatement: "Operational teams need a clearer exception handling process across channels.",
-      objectives: ["Reduce manual rework", "Improve traceability", "Prepare Jira-ready delivery scope"],
-      status: "active",
-      createdAt: new Date().toISOString()
-    }
-  ];
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly workspaceContext: WorkspaceContextService
+  ) {}
 
-  list() {
-    return this.projects;
+  async list() {
+    const owner = await this.workspaceContext.getOwner();
+
+    return this.prisma.project.findMany({
+      where: {
+        organisationId: owner.organisationId
+      },
+      orderBy: {
+        updatedAt: "desc"
+      }
+    });
   }
 
-  create(input: CreateProjectDto) {
-    const project: ProjectRecord = {
-      id: `project-${crypto.randomUUID()}`,
-      name: input.name,
-      problemStatement: input.problemStatement,
-      objectives: input.objectives ?? [],
-      status: "draft",
-      createdAt: new Date().toISOString()
-    };
+  async create(input: CreateProjectDto) {
+    const owner = await this.workspaceContext.getOwner();
 
-    this.projects.push(project);
-    return project;
+    return this.prisma.$transaction(async (transaction) => {
+      const project = await transaction.project.create({
+        data: {
+          organisationId: owner.organisationId,
+          ownerId: owner.id,
+          name: input.name,
+          ...(input.problemStatement !== undefined ? { problemStatement: input.problemStatement } : {}),
+          objectives: input.objectives ?? [],
+          status: "draft",
+          members: {
+            create: {
+              userId: owner.id,
+              role: "owner"
+            }
+          }
+        }
+      });
+
+      await transaction.auditEvent.create({
+        data: {
+          projectId: project.id,
+          actorId: owner.id,
+          actorType: "user",
+          action: "project.created",
+          artefactType: "project",
+          artefactId: project.id,
+          summary: `Created project ${project.name}.`
+        }
+      });
+
+      return project;
+    });
   }
 
-  getDashboard(projectId: string) {
+  async getDashboard(projectId: string) {
+    await this.workspaceContext.assertProjectAccess(projectId);
+
+    const [requirementGroups, pendingApprovals, aiDraftsAwaitingReview, openRisks, jiraSyncConflicts] = await Promise.all([
+      this.prisma.requirement.groupBy({
+        by: ["status"],
+        where: { projectId },
+        _count: { _all: true }
+      }),
+      this.prisma.reviewLink.count({
+        where: {
+          baseline: { projectId },
+          status: "active"
+        }
+      }),
+      this.prisma.aiDraftOutput.count({
+        where: {
+          projectId,
+          reviewStatus: {
+            in: ["generated", "under_ba_review"]
+          }
+        }
+      }),
+      this.prisma.risk.count({
+        where: {
+          projectId,
+          status: "open"
+        }
+      }),
+      this.prisma.syncConflict.count({
+        where: {
+          status: "open",
+          mapping: {
+            provider: "jira",
+            connection: {
+              projectId
+            }
+          }
+        }
+      })
+    ]);
+
+    const requirementCounts = Object.fromEntries(
+      requirementGroups.map((group) => [group.status, group._count._all])
+    );
+
+    const tracedRequirementCount = await this.prisma.traceabilityLink.count({
+      where: {
+        projectId,
+        sourceType: "requirement",
+        targetType: {
+          in: ["user_story", "test_scenario"]
+        }
+      }
+    });
+    const totalRequirementCount = requirementGroups.reduce((total, group) => total + group._count._all, 0);
+
     return {
       projectId,
-      requirementCounts: {
-        draft: 12,
-        inReview: 7,
-        approved: 21,
-        baselined: 16
-      },
-      pendingApprovals: 5,
-      aiDraftsAwaitingReview: 18,
-      traceabilityCoveragePercent: 72,
-      openRisks: 4,
-      jiraSyncConflicts: 1
+      requirementCounts,
+      pendingApprovals,
+      aiDraftsAwaitingReview,
+      traceabilityCoveragePercent:
+        totalRequirementCount === 0 ? 0 : Math.min(100, Math.round((tracedRequirementCount / totalRequirementCount) * 100)),
+      openRisks,
+      jiraSyncConflicts
     };
   }
 }

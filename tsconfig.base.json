@@ -12,10 +12,6 @@
     "skipLibCheck": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
-    "baseUrl": ".",
-    "paths": {
-      "@ba-workbench/shared": ["packages/shared/src/index.ts"],
-      "@ba-workbench/ai-schemas": ["packages/ai-schemas/src/index.ts"]
-    }
+    "baseUrl": "."
   }
 }
