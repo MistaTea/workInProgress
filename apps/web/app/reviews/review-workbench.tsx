@@ -142,7 +142,7 @@ interface CandidateFormState {
   rejectionReason: string;
 }
 
-const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000/api").replace(/\/$/, "");
+const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api").replace(/\/$/, "");
 
 const reviewStatusLabels: Record<ReviewStatus, string> = {
   generated: "Generated",
@@ -459,7 +459,7 @@ export function ReviewWorkbench() {
           stakeholderEmail
         })
       });
-      setLatestReviewUrl(packet.reviewUrl ?? null);
+      setLatestReviewUrl(packet.token ? `${window.location.origin}/stakeholder-review/${packet.token}` : packet.reviewUrl ?? null);
       setSelectedRequirementIds([]);
       setPacketName("");
       await loadRequirements(selectedProjectId);

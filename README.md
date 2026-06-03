@@ -92,6 +92,19 @@ and AI requirement extraction draft without requiring an OpenAI key. From there 
 requirements, package those requirements for stakeholder review, open the generated stakeholder link, and record approval
 evidence. Set `PUBLIC_WEB_BASE_URL` on the API if generated stakeholder links should use a different web URL.
 
+### GitHub Codespaces Demo
+
+This repository includes a dev container so the demo can run in GitHub Codespaces without installing local agents or
+requiring workstation admin rights.
+
+1. In GitHub, choose **Code** > **Codespaces** > **Create codespace on master**.
+2. Wait for setup to finish. The container installs dependencies, applies Prisma migrations, and starts the API and web app.
+3. Open forwarded port `3000`.
+4. Go to `/reviews`, select **Load demo**, accept the AI requirement candidates, create a stakeholder review link, and
+   submit a stakeholder decision from the generated link.
+
+The web app calls the API through `/api`, which Next.js rewrites to the Nest API in local and Codespaces environments.
+
 ## Integration Tests
 
 The integration tests exercise project, document, AI job, requirement, retrieval, and worker persistence against PostgreSQL.

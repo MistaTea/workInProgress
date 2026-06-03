@@ -1,0 +1,23 @@
+{
+  "name": "BA Workbench Demo",
+  "dockerComposeFile": ["../infra/docker/docker-compose.local.yml", "docker-compose.yml"],
+  "service": "app",
+  "workspaceFolder": "/workspaces/workInProgress",
+  "forwardPorts": [3000, 4000],
+  "portsAttributes": {
+    "3000": {
+      "label": "BA Workbench web",
+      "onAutoForward": "openPreview"
+    },
+    "4000": {
+      "label": "BA Workbench API"
+    }
+  },
+  "postCreateCommand": "corepack enable && corepack prepare pnpm@9.15.0 --activate && pnpm install --frozen-lockfile=false && pnpm db:deploy",
+  "postAttachCommand": "pnpm dev",
+  "customizations": {
+    "vscode": {
+      "extensions": ["Prisma.prisma"]
+    }
+  }
+}
