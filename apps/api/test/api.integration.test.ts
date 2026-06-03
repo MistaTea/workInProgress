@@ -51,6 +51,15 @@ interface DocumentResponse {
   }>;
 }
 
+interface AiJobResponse {
+  id: string;
+  projectId: string;
+  jobType: string;
+  status: string;
+  reviewModel: string;
+  outputs: unknown[];
+}
+
 let app: INestApplication;
 let prisma: PrismaService;
 let baseUrl: string;
@@ -138,6 +147,50 @@ test("persists a project and versioned requirement through the HTTP API", async 
   assert.equal(documentDetail.response.status, 200);
   assert.equal(documentDetail.body.name, "Payments discovery notes");
 
+  await prisma.document.update({
+    where: {
+      id: documentResult.body.id
+    },
+    data: {
+      extractionStatus: "completed",
+      embeddingStatus: "skipped"
+    }
+  });
+  await prisma.documentChunk.create({
+    data: {
+      documentId: documentResult.body.id,
+      chunkIndex: 0,
+      chunkText: "Operations needs clearer payment exception reasons.",
+      metadata: {
+        startOffset: 0,
+        endOffset: 51,
+        characterCount: 51
+      }
+    }
+  });
+
+  const aiJobResult = await requestJson<AiJobResponse>(`/api/projects/${projectResult.body.id}/ai/jobs`, {
+    method: "POST",
+    body: JSON.stringify({
+      jobType: "extract_requirements",
+      sourceArtefactIds: [documentResult.body.id],
+      instructions: "Focus on operational requirements."
+    })
+  });
+
+  assert.equal(aiJobResult.response.status, 201);
+  assert.equal(aiJobResult.body.jobType, "extract_requirements");
+  assert.equal(aiJobResult.body.status, "queued");
+  assert.equal(aiJobResult.body.reviewModel, "ai_draft_requires_human_review");
+  assert.deepEqual(aiJobResult.body.outputs, []);
+
+  const aiJobDetail = await requestJson<AiJobResponse>(
+    `/api/projects/${projectResult.body.id}/ai/jobs/${aiJobResult.body.id}`
+  );
+  assert.equal(aiJobDetail.response.status, 200);
+  assert.equal(aiJobDetail.body.id, aiJobResult.body.id);
+  assert.equal(aiJobDetail.body.reviewModel, "ai_draft_requires_human_review");
+
   const requirementResult = await requestJson<RequirementResponse>(
     `/api/projects/${projectResult.body.id}/requirements`,
     {
@@ -183,5 +236,5 @@ test("persists a project and versioned requirement through the HTTP API", async 
       projectId: projectResult.body.id
     }
   });
-  assert.equal(auditEventCount, 4);
+  assert.equal(auditEventCount, 5);
 });

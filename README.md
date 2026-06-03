@@ -61,9 +61,19 @@ Document chunks preserve character offsets so downstream AI drafts can cite stab
 The worker uses `text-embedding-3-small` with 1,536 dimensions when `OPENAI_API_KEY` is configured. Binary document
 uploads, object storage, PDF/DOCX extraction, and OCR remain future extraction adapters.
 
+## Grounded AI Drafts
+
+Semantic document search ranks same-project chunks using pgvector cosine similarity and the configured embedding model.
+It requires `OPENAI_API_KEY` so the query can be embedded with the same model used during document ingestion.
+Requirement extraction jobs are explicitly scoped to selected documents, run asynchronously, and use the OpenAI
+Responses API with Structured Outputs. The worker rejects citations outside the selected source chunks and stores the
+result as an `AiDraftOutput` with review status `generated`; it never creates approved requirements automatically.
+
+The default requirement extraction model is `gpt-5.5` and can be changed with `OPENAI_REQUIREMENT_EXTRACTION_MODEL`.
+
 ## Integration Tests
 
-The API integration test starts the real NestJS application and exercises project and requirement persistence against PostgreSQL.
+The integration tests exercise project, document, AI job, requirement, retrieval, and worker persistence against PostgreSQL.
 
 ```bash
 docker compose -f infra/docker/docker-compose.local.yml up -d
