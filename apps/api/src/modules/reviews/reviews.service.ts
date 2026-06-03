@@ -235,28 +235,28 @@ export class ReviewsService {
     await this.workspaceContext.assertProjectAccess(baseline.projectId);
     const token = randomUUID();
     const stakeholderEmailValue = normaliseOptionalText(stakeholderEmail);
+    const stakeholder =
+      stakeholderEmailValue !== undefined
+        ? await this.prisma.stakeholder.create({
+            data: {
+              projectId: baseline.projectId,
+              name: stakeholderEmailValue,
+              email: stakeholderEmailValue,
+              approvalRole: "reviewer"
+            }
+          })
+        : null;
 
     const reviewLink = await this.prisma.reviewLink.create({
       data: {
         tokenHash: tokenHash(token),
+        ...(stakeholder !== null ? { stakeholderId: stakeholder.id } : {}),
         baselineId: baseline.id,
         artefactType: "requirement_baseline",
         artefactId: baseline.id,
         status: "active",
         expiresAt: new Date(Date.now() + DEFAULT_REVIEW_WINDOW_DAYS * 24 * 60 * 60 * 1000),
-        emailRequired: false,
-        ...(stakeholderEmailValue !== undefined
-          ? {
-              stakeholder: {
-                create: {
-                  projectId: baseline.projectId,
-                  name: stakeholderEmailValue,
-                  email: stakeholderEmailValue,
-                  approvalRole: "reviewer"
-                }
-              }
-            }
-          : {})
+        emailRequired: false
       }
     });
 
