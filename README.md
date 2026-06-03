@@ -85,6 +85,13 @@ created requirements are stakeholder-approved or baselined.
 The web app exposes this workflow at `/reviews`. Set `NEXT_PUBLIC_API_BASE_URL` when the API is not running at the
 default `http://localhost:4000/api`.
 
+## Working Demo Flow
+
+For a fresh local database, open `/reviews` and use **Load demo**. This creates a sample project, source document chunk,
+and AI requirement extraction draft without requiring an OpenAI key. From there you can accept AI candidates into draft
+requirements, package those requirements for stakeholder review, open the generated stakeholder link, and record approval
+evidence. Set `PUBLIC_WEB_BASE_URL` on the API if generated stakeholder links should use a different web URL.
+
 ## Integration Tests
 
 The integration tests exercise project, document, AI job, requirement, retrieval, and worker persistence against PostgreSQL.

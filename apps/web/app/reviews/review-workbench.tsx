@@ -23,6 +23,13 @@ interface Project {
   status: string;
 }
 
+interface DemoBootstrapResponse {
+  project: Project;
+  aiDraft: {
+    id: string;
+  };
+}
+
 interface ReviewSummary {
   totalCandidates: number;
   reviewedCandidates: number;
@@ -57,6 +64,13 @@ interface CreatedRequirement {
   status: string;
 }
 
+interface RequirementListItem extends CreatedRequirement {
+  statement: string;
+  type: RequirementType;
+  priority: Priority;
+  currentVersion: number;
+}
+
 interface CandidateReview {
   decision: "accepted" | "rejected";
   comments: string | null;
@@ -78,6 +92,44 @@ interface RequirementCandidate {
 
 interface DraftDetail extends DraftListItem {
   requirementCandidates: RequirementCandidate[];
+}
+
+interface ApprovalEvidence {
+  id: string;
+  decision: "approved" | "changes_requested" | "rejected";
+  reviewerName: string;
+  reviewerEmail: string | null;
+  comments: string | null;
+  decidedAt: string;
+}
+
+interface ReviewPacket {
+  id: string;
+  name: string;
+  version: number;
+  status: string;
+  reviewUrl?: string;
+  token?: string;
+  createdAt: string;
+  approvedAt: string | null;
+  items: Array<{
+    requirement: RequirementListItem;
+    requirementVersion: {
+      version: number;
+      title: string;
+      statement: string;
+    };
+  }>;
+  reviewLinks: Array<{
+    status: string;
+    expiresAt: string;
+    stakeholder: {
+      name: string;
+      email: string | null;
+    } | null;
+    approvals: ApprovalEvidence[];
+  }>;
+  approvals: ApprovalEvidence[];
 }
 
 interface CandidateFormState {
@@ -164,13 +216,23 @@ export function ReviewWorkbench() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [drafts, setDrafts] = useState<DraftListItem[]>([]);
+  const [requirements, setRequirements] = useState<RequirementListItem[]>([]);
+  const [reviewPackets, setReviewPackets] = useState<ReviewPacket[]>([]);
   const [selectedDraftId, setSelectedDraftId] = useState("");
+  const [selectedRequirementIds, setSelectedRequirementIds] = useState<string[]>([]);
+  const [packetName, setPacketName] = useState("");
+  const [stakeholderName, setStakeholderName] = useState("Operations Manager");
+  const [stakeholderEmail, setStakeholderEmail] = useState("ops.manager@example.com");
+  const [latestReviewUrl, setLatestReviewUrl] = useState<string | null>(null);
   const [draftDetail, setDraftDetail] = useState<DraftDetail | null>(null);
   const [activeCandidateIndex, setActiveCandidateIndex] = useState(0);
   const [loadingProjects, setLoadingProjects] = useState(true);
   const [loadingDrafts, setLoadingDrafts] = useState(false);
+  const [loadingReviewPackets, setLoadingReviewPackets] = useState(false);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [reviewingCandidate, setReviewingCandidate] = useState<number | null>(null);
+  const [creatingPacket, setCreatingPacket] = useState(false);
+  const [bootstrappingDemo, setBootstrappingDemo] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const selectedProject = useMemo(
@@ -255,6 +317,39 @@ export function ReviewWorkbench() {
     }
   }, []);
 
+  const loadRequirements = useCallback(async (projectId: string) => {
+    if (!projectId) {
+      setRequirements([]);
+      setSelectedRequirementIds([]);
+      return;
+    }
+
+    try {
+      const data = await fetchJson<RequirementListItem[]>(`/projects/${projectId}/requirements`);
+      setRequirements(data);
+      setSelectedRequirementIds((current) => current.filter((id) => data.some((requirement) => requirement.id === id)));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to load requirements.");
+    }
+  }, []);
+
+  const loadReviewPackets = useCallback(async (projectId: string) => {
+    if (!projectId) {
+      setReviewPackets([]);
+      return;
+    }
+
+    setLoadingReviewPackets(true);
+    try {
+      const data = await fetchJson<ReviewPacket[]>(`/projects/${projectId}/review-packets`);
+      setReviewPackets(data);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to load stakeholder review packets.");
+    } finally {
+      setLoadingReviewPackets(false);
+    }
+  }, []);
+
   useEffect(() => {
     void loadProjects();
   }, [loadProjects]);
@@ -267,6 +362,11 @@ export function ReviewWorkbench() {
     void loadDraftDetail(selectedProjectId, selectedDraftId);
   }, [loadDraftDetail, selectedDraftId, selectedProjectId]);
 
+  useEffect(() => {
+    void loadRequirements(selectedProjectId);
+    void loadReviewPackets(selectedProjectId);
+  }, [loadRequirements, loadReviewPackets, selectedProjectId]);
+
   async function refresh() {
     await loadProjects();
     if (selectedProjectId) {
@@ -274,6 +374,10 @@ export function ReviewWorkbench() {
     }
     if (selectedProjectId && selectedDraftId) {
       await loadDraftDetail(selectedProjectId, selectedDraftId);
+    }
+    if (selectedProjectId) {
+      await loadRequirements(selectedProjectId);
+      await loadReviewPackets(selectedProjectId);
     }
   }
 
@@ -319,10 +423,70 @@ export function ReviewWorkbench() {
       );
       setDraftDetail(updatedDraft);
       await loadDrafts(selectedProjectId);
+      await loadRequirements(selectedProjectId);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to submit review decision.");
     } finally {
       setReviewingCandidate(null);
+    }
+  }
+
+  function toggleRequirement(requirementId: string) {
+    setSelectedRequirementIds((current) =>
+      current.includes(requirementId) ? current.filter((id) => id !== requirementId) : [...current, requirementId]
+    );
+  }
+
+  async function createStakeholderReviewPacket() {
+    if (!selectedProjectId) {
+      return;
+    }
+    if (selectedRequirementIds.length === 0) {
+      setError("Select at least one requirement for stakeholder review.");
+      return;
+    }
+
+    setCreatingPacket(true);
+    setLatestReviewUrl(null);
+    setError(null);
+    try {
+      const packet = await fetchJson<ReviewPacket>(`/projects/${selectedProjectId}/review-packets`, {
+        method: "POST",
+        body: JSON.stringify({
+          name: packetName.trim().length > 0 ? packetName.trim() : "Stakeholder review packet",
+          requirementIds: selectedRequirementIds,
+          stakeholderName,
+          stakeholderEmail
+        })
+      });
+      setLatestReviewUrl(packet.reviewUrl ?? null);
+      setSelectedRequirementIds([]);
+      setPacketName("");
+      await loadRequirements(selectedProjectId);
+      await loadReviewPackets(selectedProjectId);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to create stakeholder review packet.");
+    } finally {
+      setCreatingPacket(false);
+    }
+  }
+
+  async function bootstrapDemo() {
+    setBootstrappingDemo(true);
+    setLatestReviewUrl(null);
+    setError(null);
+    try {
+      const demo = await fetchJson<DemoBootstrapResponse>("/demo/bootstrap", {
+        method: "POST"
+      });
+      setProjects((current) => [demo.project, ...current.filter((project) => project.id !== demo.project.id)]);
+      setSelectedProjectId(demo.project.id);
+      setSelectedDraftId(demo.aiDraft.id);
+      await loadProjects();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to create demo data.");
+    } finally {
+      setBootstrappingDemo(false);
     }
   }
 
@@ -361,6 +525,10 @@ export function ReviewWorkbench() {
             <h1>BA review queue</h1>
           </div>
           <div className="review-topbar-actions">
+            <button className="button secondary" disabled={bootstrappingDemo} onClick={() => void bootstrapDemo()} type="button">
+              {bootstrappingDemo ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : <FileSearch size={16} aria-hidden="true" />}
+              Load demo
+            </button>
             <label className="field-label compact">
               <span>Project</span>
               <select
@@ -496,8 +664,199 @@ export function ReviewWorkbench() {
             )}
           </section>
         </section>
+
+        <StakeholderReviewPanel
+          creatingPacket={creatingPacket}
+          latestReviewUrl={latestReviewUrl}
+          loading={loadingReviewPackets}
+          packetName={packetName}
+          reviewPackets={reviewPackets}
+          requirements={requirements}
+          selectedRequirementIds={selectedRequirementIds}
+          stakeholderEmail={stakeholderEmail}
+          stakeholderName={stakeholderName}
+          onCreatePacket={createStakeholderReviewPacket}
+          onPacketNameChange={setPacketName}
+          onStakeholderEmailChange={setStakeholderEmail}
+          onStakeholderNameChange={setStakeholderName}
+          onToggleRequirement={toggleRequirement}
+        />
       </section>
     </main>
+  );
+}
+
+interface StakeholderReviewPanelProps {
+  creatingPacket: boolean;
+  latestReviewUrl: string | null;
+  loading: boolean;
+  packetName: string;
+  reviewPackets: ReviewPacket[];
+  requirements: RequirementListItem[];
+  selectedRequirementIds: string[];
+  stakeholderEmail: string;
+  stakeholderName: string;
+  onCreatePacket: () => Promise<void>;
+  onPacketNameChange: (value: string) => void;
+  onStakeholderEmailChange: (value: string) => void;
+  onStakeholderNameChange: (value: string) => void;
+  onToggleRequirement: (requirementId: string) => void;
+}
+
+function StakeholderReviewPanel({
+  creatingPacket,
+  latestReviewUrl,
+  loading,
+  packetName,
+  reviewPackets,
+  requirements,
+  selectedRequirementIds,
+  stakeholderEmail,
+  stakeholderName,
+  onCreatePacket,
+  onPacketNameChange,
+  onStakeholderEmailChange,
+  onStakeholderNameChange,
+  onToggleRequirement
+}: StakeholderReviewPanelProps) {
+  const reviewableRequirements = requirements.filter((requirement) =>
+    ["draft", "in_review", "change_requested"].includes(requirement.status)
+  );
+
+  return (
+    <section className="stakeholder-review-panel" aria-label="Stakeholder review packets">
+      <div className="packet-builder">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Stakeholder review</p>
+            <h2>Package requirements for approval</h2>
+          </div>
+          {loading ? <LoaderCircle className="spin" size={18} aria-hidden="true" /> : <ClipboardCheck size={18} aria-hidden="true" />}
+        </div>
+
+        <div className="packet-form">
+          <label className="field-label">
+            <span>Packet name</span>
+            <input onChange={(event) => onPacketNameChange(event.target.value)} value={packetName} />
+          </label>
+          <div className="field-pair">
+            <label className="field-label">
+              <span>Reviewer name</span>
+              <input onChange={(event) => onStakeholderNameChange(event.target.value)} value={stakeholderName} />
+            </label>
+            <label className="field-label">
+              <span>Reviewer email</span>
+              <input onChange={(event) => onStakeholderEmailChange(event.target.value)} value={stakeholderEmail} />
+            </label>
+          </div>
+        </div>
+
+        <div className="requirement-picker">
+          {reviewableRequirements.map((requirement) => (
+            <label className="requirement-choice" key={requirement.id}>
+              <input
+                checked={selectedRequirementIds.includes(requirement.id)}
+                onChange={() => onToggleRequirement(requirement.id)}
+                type="checkbox"
+              />
+              <span>
+                <strong>
+                  {requirement.reference} - {requirement.title}
+                </strong>
+                <small>
+                  {formatStatus(requirement.status)} - v{requirement.currentVersion} - {requirement.priority.toUpperCase()}
+                </small>
+              </span>
+            </label>
+          ))}
+
+          {reviewableRequirements.length === 0 ? (
+            <div className="empty-state compact">
+              <FileSearch size={20} aria-hidden="true" />
+              <span>No draft or reviewable requirements are available yet.</span>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="packet-actions">
+          <button
+            className="button primary"
+            disabled={creatingPacket || selectedRequirementIds.length === 0}
+            onClick={() => void onCreatePacket()}
+            type="button"
+          >
+            {creatingPacket ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : <ClipboardCheck size={16} aria-hidden="true" />}
+            Create review link
+          </button>
+          {latestReviewUrl ? (
+            <a className="review-url" href={latestReviewUrl} rel="noreferrer" target="_blank">
+              Open stakeholder review
+            </a>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="packet-history">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Evidence</p>
+            <h2>Review decisions</h2>
+          </div>
+          <span>{reviewPackets.length} packets</span>
+        </div>
+
+        <div className="packet-list">
+          {reviewPackets.map((packet) => {
+            const latestApproval = packet.approvals[0] ?? packet.reviewLinks[0]?.approvals[0] ?? null;
+            return (
+              <article className="packet-card" key={packet.id}>
+                <div className="packet-card-heading">
+                  <div>
+                    <strong>
+                      v{packet.version} - {packet.name}
+                    </strong>
+                    <span>
+                      {packet.items.length} requirements - {formatStatus(packet.status)}
+                    </span>
+                  </div>
+                  <span className={`decision-badge ${packet.status === "approved" ? "accepted" : packet.status === "rejected" ? "rejected" : "pending"}`}>
+                    {formatStatus(packet.status)}
+                  </span>
+                </div>
+                <ul className="packet-requirements">
+                  {packet.items.map((item) => (
+                    <li key={item.requirement.id}>
+                      {item.requirement.reference} v{item.requirementVersion.version}
+                    </li>
+                  ))}
+                </ul>
+                {latestApproval ? (
+                  <div className="approval-evidence">
+                    <CheckCircle2 size={16} aria-hidden="true" />
+                    <span>
+                      {latestApproval.reviewerName} recorded {formatStatus(latestApproval.decision)} on{" "}
+                      {shortDate(latestApproval.decidedAt)}.
+                    </span>
+                  </div>
+                ) : (
+                  <div className="approval-evidence pending">
+                    <Search size={16} aria-hidden="true" />
+                    <span>Awaiting stakeholder decision.</span>
+                  </div>
+                )}
+              </article>
+            );
+          })}
+
+          {!loading && reviewPackets.length === 0 ? (
+            <div className="empty-state compact">
+              <FileSearch size={20} aria-hidden="true" />
+              <span>No stakeholder review packets have been created yet.</span>
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </section>
   );
 }
 

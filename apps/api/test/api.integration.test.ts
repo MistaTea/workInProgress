@@ -94,6 +94,53 @@ interface AiDraftListItem {
   reviewSummary: AiDraftResponse["reviewSummary"];
 }
 
+interface ReviewPacketResponse {
+  id: string;
+  name: string;
+  version: number;
+  status: string;
+  reviewUrl?: string;
+  token?: string;
+  items: Array<{
+    requirement: RequirementResponse;
+    requirementVersion: {
+      version: number;
+      statement: string;
+    };
+  }>;
+  reviewLinks: Array<{
+    status: string;
+    stakeholder: {
+      name: string;
+      email: string | null;
+    } | null;
+    approvals: Array<{
+      decision: string;
+      reviewerName: string;
+    }>;
+  }>;
+  approvals: Array<{
+    decision: string;
+    reviewerName: string;
+  }>;
+}
+
+interface StakeholderReviewResponse {
+  token: string;
+  status: string;
+  baseline: ReviewPacketResponse;
+}
+
+interface ReviewDecisionResponse {
+  token: string;
+  decision: string;
+  evidence: {
+    decision: string;
+    reviewerName: string;
+    reviewerEmail: string | null;
+  };
+}
+
 let app: INestApplication;
 let prisma: PrismaService;
 let baseUrl: string;
@@ -442,14 +489,56 @@ test("persists a project and versioned requirement through the HTTP API", async 
   assert.equal(requirementDetail.body.versions?.[0]?.version, 2);
   assert.equal(requirementDetail.body.versions?.[1]?.version, 1);
 
+  const reviewPacket = await requestJson<ReviewPacketResponse>(`/api/projects/${projectResult.body.id}/review-packets`, {
+    method: "POST",
+    body: JSON.stringify({
+      name: "Payments exception review packet",
+      requirementIds: [acceptedRequirement.id, requirementResult.body.id],
+      stakeholderName: "Operations Manager",
+      stakeholderEmail: "ops.manager@example.com"
+    })
+  });
+  assert.equal(reviewPacket.response.status, 201);
+  assert.equal(reviewPacket.body.status, "sent_for_review");
+  assert.equal(reviewPacket.body.version, 1);
+  assert.equal(reviewPacket.body.items.length, 2);
+  assert.ok(reviewPacket.body.token);
+  assert.match(reviewPacket.body.reviewUrl ?? "", /stakeholder-review/);
+
+  const stakeholderReview = await requestJson<StakeholderReviewResponse>(`/api/review/${reviewPacket.body.token}`);
+  assert.equal(stakeholderReview.response.status, 200);
+  assert.equal(stakeholderReview.body.baseline.name, "Payments exception review packet");
+  assert.equal(stakeholderReview.body.baseline.items.length, 2);
+
+  const reviewDecision = await requestJson<ReviewDecisionResponse>(`/api/review/${reviewPacket.body.token}/decision`, {
+    method: "POST",
+    body: JSON.stringify({
+      decision: "approved",
+      reviewerName: "Operations Manager",
+      reviewerEmail: "ops.manager@example.com",
+      comments: "Approved for UAT planning."
+    })
+  });
+  assert.equal(reviewDecision.response.status, 201);
+  assert.equal(reviewDecision.body.decision, "approved");
+  assert.equal(reviewDecision.body.evidence.reviewerName, "Operations Manager");
+
+  const reviewPacketList = await requestJson<ReviewPacketResponse[]>(
+    `/api/projects/${projectResult.body.id}/review-packets`
+  );
+  assert.equal(reviewPacketList.response.status, 200);
+  assert.equal(reviewPacketList.body[0]?.status, "approved");
+  assert.equal(reviewPacketList.body[0]?.approvals[0]?.decision, "approved");
+  assert.equal(reviewPacketList.body[0]?.reviewLinks[0]?.status, "completed");
+
   const dashboard = await requestJson<DashboardResponse>(`/api/projects/${projectResult.body.id}/dashboard`);
   assert.equal(dashboard.response.status, 200);
-  assert.equal(dashboard.body.requirementCounts.in_review, 1);
+  assert.equal(dashboard.body.requirementCounts.approved, 2);
 
   const auditEventCount = await prisma.auditEvent.count({
     where: {
       projectId: projectResult.body.id
     }
   });
-  assert.equal(auditEventCount, 9);
+  assert.equal(auditEventCount, 11);
 });
