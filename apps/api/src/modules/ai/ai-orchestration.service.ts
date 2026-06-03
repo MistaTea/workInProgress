@@ -295,7 +295,7 @@ export class AiOrchestrationService {
         reviewedPayload = {
           requirement: finalRequirement,
           sourceReferences: candidate.sourceReferences
-        } as Prisma.InputJsonValue;
+        } as unknown as Prisma.InputJsonValue;
         createdRequirement = await this.requirementsService.createDraftInTransaction(
           transaction,
           projectId,
@@ -442,11 +442,11 @@ export class AiOrchestrationService {
   private mergeRequirementCandidate(
     candidate: RequirementExtraction["candidates"][number],
     edits?: {
-      title?: string;
-      statement?: string;
-      type?: CreateRequirementDto["type"];
-      priority?: CreateRequirementDto["priority"];
-      rationale?: string | null;
+      title?: string | undefined;
+      statement?: string | undefined;
+      type?: CreateRequirementDto["type"] | undefined;
+      priority?: CreateRequirementDto["priority"] | undefined;
+      rationale?: string | null | undefined;
     }
   ): CreateRequirementDto {
     const rationale = edits?.rationale === null ? undefined : edits?.rationale ?? candidate.rationale;
