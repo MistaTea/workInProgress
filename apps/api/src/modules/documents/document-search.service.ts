@@ -133,7 +133,7 @@ export class DocumentSearchService {
       embedding: input.embedding,
       model: input.model,
       ...(input.limit !== undefined ? { limit: input.limit } : {}),
-      documentIds
+      documentIds: input.documentIds
     });
 
     return results.map((result) => this.toSearchResult(result));
