@@ -1,9 +1,9 @@
-import { Body, Controller, Get, Param, Post } from "@nestjs/common";
+import { Body, Controller, Get, Inject, Param, Post } from "@nestjs/common";
 import { ReviewsService } from "./reviews.service";
 
 @Controller()
 export class ReviewsController {
-  constructor(private readonly reviews: ReviewsService) {}
+  constructor(@Inject(ReviewsService) private readonly reviews: ReviewsService) {}
 
   @Post("baselines/:baselineId/send-review")
   sendReview(@Param("baselineId") baselineId: string, @Body() body: { stakeholderEmail?: string }) {

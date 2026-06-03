@@ -1,9 +1,9 @@
-import { Body, Controller, Get, Param, Patch, Post } from "@nestjs/common";
+import { Body, Controller, Get, Inject, Param, Patch, Post } from "@nestjs/common";
 import { CreateRequirementDto, RequirementsService, UpdateRequirementDto } from "./requirements.service";
 
 @Controller()
 export class RequirementsController {
-  constructor(private readonly requirementsService: RequirementsService) {}
+  constructor(@Inject(RequirementsService) private readonly requirementsService: RequirementsService) {}
 
   @Get("projects/:projectId/requirements")
   listProjectRequirements(@Param("projectId") projectId: string) {

@@ -1,9 +1,9 @@
-import { Body, Controller, Get, Param, Post } from "@nestjs/common";
+import { Body, Controller, Get, Inject, Param, Post } from "@nestjs/common";
 import { CreateTraceabilityLinkDto, TraceabilityService } from "./traceability.service";
 
 @Controller()
 export class TraceabilityController {
-  constructor(private readonly traceability: TraceabilityService) {}
+  constructor(@Inject(TraceabilityService) private readonly traceability: TraceabilityService) {}
 
   @Get("projects/:projectId/traceability")
   getMatrix(@Param("projectId") projectId: string) {

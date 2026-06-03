@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type { Project, User } from "@ba-workbench/database";
 import { PrismaService } from "./prisma.service";
 
@@ -9,7 +9,7 @@ interface ProjectAccess {
 
 @Injectable()
 export class WorkspaceContextService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   async getOwner(): Promise<User> {
     const email = process.env.DEFAULT_OWNER_EMAIL ?? "owner@ba-workbench.local";

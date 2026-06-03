@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
 import { PrismaService } from "../database/prisma.service";
 import { WorkspaceContextService } from "../database/workspace-context.service";
 
@@ -11,8 +11,8 @@ export interface CreateProjectDto {
 @Injectable()
 export class ProjectsService {
   constructor(
-    private readonly prisma: PrismaService,
-    private readonly workspaceContext: WorkspaceContextService
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(WorkspaceContextService) private readonly workspaceContext: WorkspaceContextService
   ) {}
 
   async list() {

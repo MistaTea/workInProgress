@@ -1,9 +1,9 @@
-import { Body, Controller, Get, Param, Post } from "@nestjs/common";
+import { Body, Controller, Get, Inject, Param, Post } from "@nestjs/common";
 import { CreateProjectDto, ProjectsService } from "./projects.service";
 
 @Controller("projects")
 export class ProjectsController {
-  constructor(private readonly projectsService: ProjectsService) {}
+  constructor(@Inject(ProjectsService) private readonly projectsService: ProjectsService) {}
 
   @Get()
   listProjects() {

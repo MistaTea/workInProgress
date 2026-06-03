@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type { RequirementStatus, RequirementSummary, RequirementType } from "@ba-workbench/shared";
 import { PrismaService } from "../database/prisma.service";
 import { WorkspaceContextService } from "../database/workspace-context.service";
@@ -18,8 +18,8 @@ export type UpdateRequirementDto = Partial<CreateRequirementDto> & {
 @Injectable()
 export class RequirementsService {
   constructor(
-    private readonly prisma: PrismaService,
-    private readonly workspaceContext: WorkspaceContextService
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(WorkspaceContextService) private readonly workspaceContext: WorkspaceContextService
   ) {}
 
   async listByProject(projectId: string) {
