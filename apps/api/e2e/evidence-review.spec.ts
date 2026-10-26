@@ -189,7 +189,7 @@ test("real queue and source comparison record support and follow-up history with
   await page
     .getByRole("button", { name: "Needs follow-up", exact: true })
     .click();
-  await expect(page.getByRole("alert")).toContainText("Add a comment");
+  await expect(page.getByRole("region", { name: "Requirement evidence", exact: true }).getByRole("alert")).toContainText("Add a comment");
   const comment = "Confirm the synthetic audit-trail detail with operations.";
   await page.getByRole("textbox", { name: /Review comment/ }).fill(comment);
   const response = page.waitForResponse(
@@ -288,7 +288,7 @@ test("a genuine stale-version 409 blocks resubmission until explicit refresh and
     .getByRole("button", { name: "Supports requirement", exact: true })
     .click();
   expect((await response).status()).toBe(409);
-  await expect(page.getByRole("alert")).toContainText(
+  await expect(page.getByRole("region", { name: "Requirement evidence", exact: true }).getByRole("alert")).toContainText(
     "has not been automatically resubmitted",
   );
   await expect(
