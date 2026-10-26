@@ -158,3 +158,20 @@ stale submissions return a conflict and require a fresh review. A stable submiss
 overwriting review history. The evidence queue is an internal BA workspace feature, not part of public stakeholder links.
 The existing demo-owner context is not production authentication or proof of reviewer identity. Source snapshots,
 human evidence acknowledgements, and stakeholder approvals remain separate records.
+
+### Browser integration checks
+
+The Chromium smoke suite uses the real built API/web applications and a disposable PostgreSQL/Redis test stack.
+It creates uniquely named synthetic projects and cleans up only those fixtures; it never calls an AI provider.
+After dependencies, database migrations and the production build are ready:
+
+```bash
+pnpm typecheck:e2e
+pnpm exec playwright install --with-deps chromium
+pnpm test:e2e
+```
+
+Use test-service `DATABASE_URL`/`REDIS_URL` values, never production data. Ports 3000 and 4000 must be free: Playwright
+starts and stops its own servers and will not reuse an existing instance. CI runs these checks after the normal build
+and retains failure-only traces/screenshots for seven days. Coverage includes evidence acknowledgements and history,
+content/source revalidation, stale-conflict refresh, repeat submission safety, and frozen stakeholder snapshots.
