@@ -1,6 +1,9 @@
-# AI Senior BA Workbench
+# BA Clarity
 
-An enterprise-grade AI-powered workbench for Senior Business Analysts.
+An evidence-led workspace for business analysis, from source material to reviewed requirements.
+
+BA Clarity keeps AI drafts separate from human decisions and connects requirements to their source evidence.
+This is an early development build, not yet a production-ready or authenticated approval system.
 
 The MVP focuses on:
 

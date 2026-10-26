@@ -496,8 +496,8 @@ export function ReviewWorkbench() {
         <div className="brand">
           <div className="brand-mark">BA</div>
           <div>
-            <strong>Workbench</strong>
-            <span>Senior BA Copilot</span>
+            <strong>BA Clarity</strong>
+            <span>Evidence-led business analysis</span>
           </div>
         </div>
         <nav className="nav-list">

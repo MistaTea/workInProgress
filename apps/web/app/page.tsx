@@ -44,8 +44,8 @@ export default function HomePage() {
         <div className="brand">
           <div className="brand-mark">BA</div>
           <div>
-            <strong>Workbench</strong>
-            <span>Senior BA Copilot</span>
+            <strong>BA Clarity</strong>
+            <span>Evidence-led business analysis</span>
           </div>
         </div>
         <nav className="nav-list">
@@ -77,7 +77,7 @@ export default function HomePage() {
           <div className="topbar-actions">
             <label className="search">
               <Search size={16} aria-hidden="true" />
-              <input aria-label="Search workbench" placeholder="Search projects, requirements, decisions" />
+              <input aria-label="Search BA Clarity" placeholder="Search projects, requirements, decisions" />
             </label>
             <button className="button secondary" type="button">
               <Upload size={16} aria-hidden="true" />
@@ -129,7 +129,7 @@ export default function HomePage() {
           </article>
         </section>
 
-        <section className="module-grid" aria-label="Workbench modules">
+        <section className="module-grid" aria-label="BA Clarity modules">
           {modules.map((module) => {
             const Icon = module.icon;
             return (
