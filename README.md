@@ -138,3 +138,23 @@ unimplemented. Do not expose the development API to untrusted users.
 `pnpm --filter @ba-workbench/api test:unit` runs the isolated review-governance checks without a database. The main
 `pnpm test` suite additionally exercises immutable snapshots, stale decisions, repeated concurrent submissions, edits
 after approval and link lifecycle against PostgreSQL.
+
+### Evidence revalidation
+
+Open `/evidence` from Home or Reviews to review the sources supporting a requirement. The queue distinguishes
+**Not reviewed**, **Needs revalidation**, **Reviewed for this version**, **No linked evidence**, and **Unavailable source**.
+Compare the saved reference excerpt with the complete current source chunk, then record **Supports requirement** or
+**Needs follow-up** (with a comment). These acknowledgements do not approve a requirement or establish source truth.
+
+Reviews are append-only and record the exact requirement version, reviewer, timestamp, outcome, comment, and hashes of
+full source chunks plus their document identity/version. Content or rationale edits, changed full chunk text (including
+text beyond the saved excerpt), and changed source identity require revalidation. Status-only edits and unchanged
+reingestion do not. Old references are never retroactively marked verified; there is no age-expiry policy. Missing,
+unsupported, and other-project sources cannot receive a support acknowledgement. Historical source text is not
+reconstructed: this view shows the saved excerpt and current source, not an invented historical document.
+
+Submission checks the server's current version and source fingerprints under database locks shared with ingestion;
+stale submissions return a conflict and require a fresh review. A stable submission ID makes retries idempotent without
+overwriting review history. The evidence queue is an internal BA workspace feature, not part of public stakeholder links.
+The existing demo-owner context is not production authentication or proof of reviewer identity. Source snapshots,
+human evidence acknowledgements, and stakeholder approvals remain separate records.

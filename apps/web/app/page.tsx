@@ -56,6 +56,7 @@ export default function HomePage() {
             { label: "Documents", href: "#" },
             { label: "Traceability", href: "#" },
             { label: "Reviews", href: "/reviews" },
+            { label: "Evidence", href: "/evidence" },
             { label: "Integrations", href: "#" },
             { label: "Reports", href: "#" }
           ].map(

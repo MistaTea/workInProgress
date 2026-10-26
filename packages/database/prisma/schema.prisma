@@ -133,6 +133,7 @@ model User {
   memberships    ProjectMember[]
   auditEvents    AuditEvent[]
   aiDraftReviews AiDraftReviewItem[]
+  evidenceReviews RequirementEvidenceReview[]
 }
 
 model Project {
@@ -224,6 +225,7 @@ model Requirement {
   versions        RequirementVersion[]
   baselineItems   BaselineItem[]
   aiDraftReviewSource AiDraftReviewItem?
+  evidenceReviews RequirementEvidenceReview[]
 
   @@unique([projectId, reference])
   @@index([projectId, status])
@@ -245,6 +247,7 @@ model RequirementVersion {
 
   requirement    Requirement @relation(fields: [requirementId], references: [id], onDelete: Cascade)
   baselineItems  BaselineItem[]
+  evidenceReviews RequirementEvidenceReview[]
 
   @@unique([requirementId, version])
 }
@@ -624,4 +627,27 @@ model AuditEvent {
 
   @@index([projectId, occurredAt])
   @@index([artefactType, artefactId])
+}
+
+// Append-only BA acknowledgement; not stakeholder approval or a source-truth claim.
+model RequirementEvidenceReview {
+  sequence             Int      @unique @default(autoincrement())
+  id                   String   @id @default(cuid())
+  requirementId        String
+  requirementVersionId String
+  requirementVersion   Int
+  reviewedById         String
+  reviewedAt           DateTime @default(now())
+  outcome              String
+  comment              String?
+  sourceFingerprints   Json
+  requestId            String
+  requestFingerprint   String
+
+  requirement          Requirement @relation(fields: [requirementId], references: [id], onDelete: Restrict)
+  version              RequirementVersion @relation(fields: [requirementVersionId], references: [id], onDelete: Restrict)
+  reviewer             User @relation(fields: [reviewedById], references: [id], onDelete: Restrict)
+
+  @@unique([requirementId, requestId])
+  @@index([requirementId, reviewedAt])
 }

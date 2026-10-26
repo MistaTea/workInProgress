@@ -508,6 +508,7 @@ export function ReviewWorkbench() {
             { label: "Documents", href: "#" },
             { label: "Traceability", href: "#" },
             { label: "Reviews", href: "/reviews" },
+            { label: "Evidence", href: "/evidence" },
             { label: "Integrations", href: "#" },
             { label: "Reports", href: "#" }
           ].map((item) => (

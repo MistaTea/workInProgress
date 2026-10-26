@@ -9,7 +9,7 @@
     "lint": "tsc -p tsconfig.json --noEmit",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "tsx --test --test-concurrency=1 test/*.test.ts",
-    "test:unit": "tsx --test test/review-governance.test.ts"
+    "test:unit": "tsx --test test/review-governance.test.ts test/evidence-state.test.ts"
   },
   "dependencies": {
     "@ba-workbench/ai-schemas": "workspace:*",

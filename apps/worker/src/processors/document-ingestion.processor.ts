@@ -140,6 +140,8 @@ async function persistChunks(
   }
 
   return prisma.$transaction(async (transaction) => {
+    // Evidence acknowledgements use the same document-before-chunk lock order.
+    await transaction.$queryRaw`SELECT id FROM "Document" WHERE id = ${documentId} FOR UPDATE`;
     await transaction.documentEmbedding.deleteMany({
       where: {
         chunk: {
