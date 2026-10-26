@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "BA Workbench",
-  description: "AI-powered Senior Business Analyst Workbench"
+  title: "BA Clarity",
+  description: "Evidence-led business analysis, from source to stakeholder review"
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

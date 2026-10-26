@@ -15,6 +15,9 @@ interface ReviewRequirement {
   };
   requirementVersion: {
     version: number;
+    title: string;
+    type: string;
+    priority: string;
     statement: string;
     rationale: string | null;
   };
@@ -83,6 +86,7 @@ export function StakeholderReviewPage({ token }: { token: string }) {
       setReviewerName((current) => current || data.stakeholder?.name || "");
       setReviewerEmail((current) => current || data.stakeholder?.email || "");
     } catch (caught) {
+      setReview(null);
       setError(caught instanceof Error ? caught.message : "Unable to load stakeholder review.");
     } finally {
       setLoading(false);
@@ -151,7 +155,7 @@ export function StakeholderReviewPage({ token }: { token: string }) {
                 <strong>
                   Packet v{review.baseline.version} - {formatStatus(review.status)}
                 </strong>
-                <span>{review.baseline.items.length} requirements awaiting review evidence.</span>
+                <span>{review.baseline.items.length} versioned requirements. Your decision applies only to this snapshot.</span>
               </div>
             </section>
 
@@ -160,11 +164,11 @@ export function StakeholderReviewPage({ token }: { token: string }) {
                 <article className="stakeholder-requirement" key={item.requirement.id}>
                   <div>
                     <strong>
-                      {item.requirement.reference} - {item.requirement.title}
+                      {item.requirement.reference} - {item.requirementVersion.title}
                     </strong>
                     <span>
-                      v{item.requirementVersion.version} - {formatStatus(item.requirement.type)} -{" "}
-                      {item.requirement.priority.toUpperCase()}
+                      v{item.requirementVersion.version} - {formatStatus(item.requirementVersion.type)} -{" "}
+                      {item.requirementVersion.priority.toUpperCase()}
                     </span>
                   </div>
                   <p>{item.requirementVersion.statement}</p>
@@ -180,8 +184,14 @@ export function StakeholderReviewPage({ token }: { token: string }) {
                   <strong>Decision recorded</strong>
                   <span>Your review evidence has been saved for the Business Analyst.</span>
                 </div>
+              ) : review.status !== "active" ? (
+                <div className="completion-panel" role="status">
+                  <strong>This review link is no longer active</strong>
+                  <span>Ask the Business Analyst for a new review link.</span>
+                </div>
               ) : (
                 <>
+                  <p>Your name and email are self-declared. This link does not verify your identity.</p>
                   <div className="field-pair">
                     <label className="field-label">
                       <span>Your name</span>

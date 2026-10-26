@@ -16,7 +16,9 @@
     "db:migrate": "pnpm --filter @ba-workbench/database db:migrate",
     "db:deploy": "pnpm --filter @ba-workbench/database db:deploy",
     "db:push": "pnpm --filter @ba-workbench/database db:push",
-    "db:validate": "pnpm --filter @ba-workbench/database db:validate"
+    "db:validate": "pnpm --filter @ba-workbench/database db:validate",
+    "test:e2e": "playwright test",
+    "typecheck:e2e": "tsc --noEmit --strict --skipLibCheck --target ES2022 --module Node16 --moduleResolution Node16 playwright.config.ts apps/api/e2e/*.spec.ts"
   },
   "engines": {
     "node": ">=20.0.0",
@@ -30,6 +32,7 @@
   "devDependencies": {
     "@types/node": "^22.10.2",
     "prettier": "^3.4.2",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "@playwright/test": "1.64.1"
   }
 }

@@ -1,6 +1,9 @@
-# AI Senior BA Workbench
+# BA Clarity
 
-An enterprise-grade AI-powered workbench for Senior Business Analysts.
+An evidence-led workspace for business analysis, from source material to reviewed requirements.
+
+BA Clarity keeps AI drafts separate from human decisions and connects requirements to their source evidence.
+This is an early development build, not yet a production-ready or authenticated approval system.
 
 The MVP focuses on:
 
@@ -115,3 +118,91 @@ cp .env.example .env
 pnpm db:deploy
 pnpm test
 ```
+
+### Version-bound stakeholder decisions
+
+Review links expose only the frozen requirement versions in their packet, not later edits. A decision is recorded
+against that snapshot. Only requirements still at that exact version receive the decision's status; newer versions
+remain unchanged and their IDs are returned in `supersededRequirementIds` and retained in the audit event. Changing
+requirement content resets the new version to `draft`, even if an approval status is supplied with the edit. Concurrent
+edits require a refresh rather than silently overwriting each other.
+
+Decision submission claims an unexpired active link atomically, so retries cannot create duplicate evidence.
+Expired/revoked links cannot read packet content or submit decisions. Completed links can read their immutable receipt.
+The current flow supports one reviewer link per packet. Additional links, and decisions for legacy packets with multiple
+non-revoked links, return a conflict without recording a decision: multi-reviewer quorum/aggregation policy is not yet
+implemented. Create a fresh single-reviewer packet instead. This is not an authenticated approval/signature system:
+names and email addresses are self-declared, possession of a link grants access, and production authentication remains
+unimplemented. Do not expose the development API to untrusted users.
+
+`pnpm --filter @ba-workbench/api test:unit` runs the isolated review-governance checks without a database. The main
+`pnpm test` suite additionally exercises immutable snapshots, stale decisions, repeated concurrent submissions, edits
+after approval and link lifecycle against PostgreSQL.
+
+### Evidence revalidation
+
+Open `/evidence` from Home or Reviews to review the sources supporting a requirement. The queue distinguishes
+**Not reviewed**, **Needs revalidation**, **Reviewed for this version**, **No linked evidence**, and **Unavailable source**.
+Compare the saved reference excerpt with the complete current source chunk, then record **Supports requirement** or
+**Needs follow-up** (with a comment). These acknowledgements do not approve a requirement or establish source truth.
+
+Reviews are append-only and record the exact requirement version, reviewer, timestamp, outcome, comment, and hashes of
+full source chunks plus their document identity/version. Content or rationale edits, changed full chunk text (including
+text beyond the saved excerpt), and changed source identity require revalidation. Status-only edits and unchanged
+reingestion do not. Old references are never retroactively marked verified; there is no age-expiry policy. Missing,
+unsupported, and other-project sources cannot receive a support acknowledgement. Historical source text is not
+reconstructed: this view shows the saved excerpt and current source, not an invented historical document.
+
+Submission checks the server's current version and source fingerprints under database locks shared with ingestion;
+stale submissions return a conflict and require a fresh review. A stable submission ID makes retries idempotent without
+overwriting review history. The evidence queue is an internal BA workspace feature, not part of public stakeholder links.
+The existing demo-owner context is not production authentication or proof of reviewer identity. Source snapshots,
+human evidence acknowledgements, and stakeholder approvals remain separate records.
+
+### Browser integration checks
+
+The Chromium smoke suite uses the real built API/web applications and a disposable PostgreSQL/Redis test stack.
+It creates uniquely named synthetic projects and cleans up only those fixtures; it never calls an AI provider.
+After dependencies, database migrations and the production build are ready:
+
+```bash
+pnpm typecheck:e2e
+pnpm exec playwright install --with-deps chromium
+pnpm test:e2e
+```
+
+Use test-service `DATABASE_URL`/`REDIS_URL` values, never production data. Ports 3000 and 4000 must be free: Playwright
+starts and stops its own servers and will not reuse an existing instance. CI runs these checks after the normal build
+and retains failure-only traces/screenshots for seven days. Coverage includes evidence acknowledgements and history,
+content/source revalidation, stale-conflict refresh, repeat submission safety, and frozen stakeholder snapshots.
+
+### Start your own project and source intake
+
+Home now reads real projects and counts from the API instead of showing example metrics or fictional work items.
+Create a project, select it, and paste plain text, Markdown, or a transcript (up to 20,000 characters in the browser).
+The workspace shows queued/processing/completed status, chunk content, extraction/embedding errors, manual refresh,
+and retry for failed ingestion. Loading/error/empty states are explicit; pending work is polled until terminal status
+or a read error. Project context is retained in `?projectId=` links across Home, Reviews and Evidence, including browser
+Back/Forward; unknown IDs are not silently replaced with another project.
+
+Parsing/chunking is real and works without a provider key. Embeddings are separately reported as skipped when no
+provider is configured. Intake does **not** automatically generate requirements or call the requirement-extraction
+integration. The existing **Load demo** action is a separate seeded demonstration, not extraction of your own notes.
+This increment adds no file uploads, provider setup, general mock extractor or external AI calls during testing.
+
+Each ingestion attempt has an identifier shared by the database row and queue payload. Queued intent is persisted
+before publishing; late failure callbacks cannot overwrite another attempt, and stale/duplicate deliveries cannot
+claim a newer ingestion. An ambiguous enqueue error may still represent accepted work; an explicit retry supersedes
+that attempt, so its delayed delivery becomes a no-op. Active work cannot be retried concurrently. This is not a
+transactional outbox: a process crash between database claim and queue publication can leave queued intent requiring
+operator reconciliation; no automatic timeout/lease policy is invented. Provider-initialization failures become
+terminal embedding failures so an explicit retry remains possible after configuration is repaired.
+
+Browser CI uses isolated Redis DB15 and a document-only worker with its embedding provider explicitly disabled.
+It covers real project/source creation, guarded repeated clicks, pending-to-completed parsing/chunks, project deep
+links/Back/invalid IDs, and discarding delayed responses from a previously selected project.
+
+The same conservative boundary applies to a worker crash while an attempt is processing: duplicate/stalled redelivery
+cannot prove the previous owner has stopped, so it does not take over or mutate that active attempt. The document can
+remain processing and require operator reconciliation. Current tests explicitly expose this limitation; automatic
+stalled-job recovery/leases are not implemented, and active attempts are never silently retried by the UI.

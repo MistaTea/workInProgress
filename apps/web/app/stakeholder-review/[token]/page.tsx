@@ -9,5 +9,5 @@ interface PageProps {
 export default async function ReviewTokenPage({ params }: PageProps) {
   const { token } = await params;
 
-  return <StakeholderReviewPage token={token} />;
+  return <StakeholderReviewPage key={token} token={token} />;
 }

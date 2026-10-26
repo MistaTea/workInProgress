@@ -180,16 +180,15 @@ export class ReviewsService {
         }
       });
 
-      await transaction.requirement.updateMany({
-        where: {
-          id: {
-            in: requirementIds
-          }
-        },
-        data: {
-          status: "in_review"
+      for (const requirement of requirements) {
+        const updated = await transaction.requirement.updateMany({
+          where: { id: requirement.id, currentVersion: requirement.versions[0]!.version },
+          data: { status: "in_review" }
+        });
+        if (updated.count !== 1) {
+          throw new ConflictException("A selected requirement changed. Refresh and create a new review packet.");
         }
-      });
+      }
 
       await transaction.auditEvent.create({
         data: {
@@ -233,42 +232,56 @@ export class ReviewsService {
     }
 
     await this.workspaceContext.assertProjectAccess(baseline.projectId);
-    const token = randomUUID();
-    const stakeholderEmailValue = normaliseOptionalText(stakeholderEmail);
-    const stakeholder =
-      stakeholderEmailValue !== undefined
-        ? await this.prisma.stakeholder.create({
-            data: {
-              projectId: baseline.projectId,
-              name: stakeholderEmailValue,
-              email: stakeholderEmailValue,
-              approvalRole: "reviewer"
-            }
-          })
-        : null;
-
-    const reviewLink = await this.prisma.reviewLink.create({
-      data: {
-        tokenHash: tokenHash(token),
-        ...(stakeholder !== null ? { stakeholderId: stakeholder.id } : {}),
-        baselineId: baseline.id,
-        artefactType: "requirement_baseline",
-        artefactId: baseline.id,
-        status: "active",
-        expiresAt: new Date(Date.now() + DEFAULT_REVIEW_WINDOW_DAYS * 24 * 60 * 60 * 1000),
-        emailRequired: false
+    if (baseline.status !== "sent_for_review") {
+      throw new ConflictException("Create a new review packet for a new decision.");
+    }
+    // Extra reviewers require an explicit aggregation policy. Do not issue an
+    // ambiguous second link or allow a late link to reopen a final decision.
+    return this.prisma.$transaction(async (transaction) => {
+      await transaction.$queryRaw`SELECT id FROM "RequirementBaseline" WHERE id = ${baselineId} FOR UPDATE`;
+      const current = await transaction.requirementBaseline.findUnique({ where: { id: baselineId } });
+      if (!current || current.status !== "sent_for_review") {
+        throw new ConflictException("Create a new review packet for a new decision.");
       }
+      const existingLinks = await transaction.reviewLink.count({ where: { baselineId, status: { not: "revoked" } } });
+      if (existingLinks > 0) {
+        throw new ConflictException("This packet already has a review link. Multi-reviewer aggregation is not yet supported; create a new packet instead.");
+      }
+      const token = randomUUID();
+      const stakeholderEmailValue = normaliseOptionalText(stakeholderEmail);
+      const stakeholder = stakeholderEmailValue ? await transaction.stakeholder.create({
+        data: { projectId: baseline.projectId, name: stakeholderEmailValue, email: stakeholderEmailValue, approvalRole: "reviewer" }
+      }) : null;
+      const reviewLink = await transaction.reviewLink.create({
+        data: {
+          tokenHash: tokenHash(token),
+          ...(stakeholder ? { stakeholderId: stakeholder.id } : {}),
+          baselineId, artefactType: "requirement_baseline", artefactId: baselineId,
+          status: "active", expiresAt: new Date(Date.now() + DEFAULT_REVIEW_WINDOW_DAYS * 24 * 60 * 60 * 1000),
+          emailRequired: false
+        }
+      });
+      return { ...reviewLink, reviewUrl: `${REVIEW_BASE_URL}/stakeholder-review/${token}`, token };
     });
-
-    return {
-      ...reviewLink,
-      reviewUrl: `${REVIEW_BASE_URL}/stakeholder-review/${token}`,
-      token
-    };
   }
 
   async getReview(token: string) {
     const reviewLink = await this.findActiveReviewLink(token);
+    if (reviewLink.status === "revoked" || reviewLink.status === "expired" ||
+        (reviewLink.status === "active" && reviewLink.expiresAt.getTime() <= Date.now())) {
+      throw new ConflictException("This review link is no longer available. Ask the Business Analyst for a new link.");
+    }
+
+    const baseline = reviewLink.baseline ? {
+      id: reviewLink.baseline.id,
+      name: reviewLink.baseline.name,
+      version: reviewLink.baseline.version,
+      status: reviewLink.baseline.status,
+      items: reviewLink.baseline.items.map((item) => ({
+        requirement: { id: item.requirement.id, reference: item.requirement.reference },
+        requirementVersion: item.requirementVersion
+      }))
+    } : null;
 
     return {
       token,
@@ -277,7 +290,7 @@ export class ReviewsService {
       status: reviewLink.status,
       expiresAt: reviewLink.expiresAt,
       stakeholder: reviewLink.stakeholder,
-      baseline: reviewLink.baseline,
+      baseline,
       approvals: reviewLink.approvals,
       requiresEmailVerification: reviewLink.emailRequired
     };
@@ -298,9 +311,9 @@ export class ReviewsService {
     if (reviewLink.status !== "active") {
       throw new ConflictException("This review link has already been completed.");
     }
-    if (reviewLink.expiresAt.getTime() < Date.now()) {
-      await this.prisma.reviewLink.update({
-        where: { id: reviewLink.id },
+    if (reviewLink.expiresAt.getTime() <= Date.now()) {
+      await this.prisma.reviewLink.updateMany({
+        where: { id: reviewLink.id, status: "active", expiresAt: { lte: new Date() } },
         data: { status: "expired" }
       });
       throw new ConflictException("This review link has expired.");
@@ -309,7 +322,31 @@ export class ReviewsService {
     const reviewerEmail = normaliseOptionalText(input.reviewerEmail);
     const comments = normaliseOptionalText(input.comments);
 
-    const evidence = await this.prisma.$transaction(async (transaction) => {
+    const result = await this.prisma.$transaction(async (transaction) => {
+      // Serialize packet decisions before claiming the individual link. No quorum
+      // policy is implemented: ambiguous multi-link packets require manual review.
+      await transaction.$queryRaw`SELECT id FROM "RequirementBaseline" WHERE id = ${baselineId} FOR UPDATE`;
+      const linkCount = await transaction.reviewLink.count({
+        where: { baselineId, status: { not: "revoked" } }
+      });
+      if (linkCount !== 1) {
+        throw new ConflictException("This packet has multiple review links and requires BA review. Create a fresh single-reviewer packet; no decision has been recorded.");
+      }
+      const packetClaim = await transaction.requirementBaseline.updateMany({
+        where: { id: baselineId, status: "sent_for_review" },
+        data: { status: decision, approvedAt: decision === "approved" ? new Date() : null }
+      });
+      if (packetClaim.count !== 1) {
+        throw new ConflictException("This review packet has already received a final decision.");
+      }
+      const linkClaim = await transaction.reviewLink.updateMany({
+        where: { id: reviewLink.id, status: "active", expiresAt: { gt: new Date() } },
+        data: { status: "completed" }
+      });
+      if (linkClaim.count !== 1) {
+        throw new ConflictException("This review link has expired or already been completed.");
+      }
+
       const approvalEvidence = await transaction.approvalEvidence.create({
         data: {
           stakeholderId: reviewLink.stakeholderId,
@@ -325,31 +362,18 @@ export class ReviewsService {
         }
       });
 
-      await transaction.reviewLink.update({
-        where: { id: reviewLink.id },
-        data: {
-          status: "completed"
-        }
-      });
-
-      await transaction.requirementBaseline.update({
-        where: { id: baselineId },
-        data: {
-          status: decision,
-          ...(decision === "approved" ? { approvedAt: new Date() } : {})
-        }
-      });
-
-      await transaction.requirement.updateMany({
-        where: {
-          id: {
-            in: reviewLink.baseline!.items.map((item) => item.requirementId)
+      const updatedRequirementIds: string[] = [];
+      const supersededRequirementIds: string[] = [];
+      for (const item of reviewLink.baseline!.items) {
+        // Never approve/reject a newer edit using evidence for an older snapshot.
+        const update = await transaction.requirement.updateMany({
+          where: { id: item.requirementId, currentVersion: item.requirementVersion.version },
+          data: {
+            status: decision === "approved" ? "approved" : decision === "rejected" ? "rejected" : "change_requested"
           }
-        },
-        data: {
-          status: decision === "approved" ? "approved" : decision === "rejected" ? "rejected" : "change_requested"
-        }
-      });
+        });
+        (update.count === 1 ? updatedRequirementIds : supersededRequirementIds).push(item.requirementId);
+      }
 
       await transaction.auditEvent.create({
         data: {
@@ -362,19 +386,21 @@ export class ReviewsService {
           metadata: {
             reviewLinkId: reviewLink.id,
             approvalEvidenceId: approvalEvidence.id,
-            decision
+            decision,
+            updatedRequirementIds,
+            supersededRequirementIds
           } as Prisma.InputJsonValue
         }
       });
 
-      return approvalEvidence;
+      return { evidence: approvalEvidence, updatedRequirementIds, supersededRequirementIds };
     });
 
     return {
       token,
       decision,
-      evidence,
-      decidedAt: evidence.decidedAt
+      ...result,
+      decidedAt: result.evidence.decidedAt
     };
   }
 

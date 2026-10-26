@@ -1,4 +1,5 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable } from "@nestjs/common";
+import { z } from "zod";
 import { PrismaService } from "../database/prisma.service";
 import { WorkspaceContextService } from "../database/workspace-context.service";
 
@@ -7,6 +8,12 @@ export interface CreateProjectDto {
   problemStatement?: string;
   objectives?: string[];
 }
+
+const createProjectSchema = z.object({
+  name: z.string().trim().min(1).max(200),
+  problemStatement: z.string().max(4000).optional(),
+  objectives: z.array(z.string().trim().min(1).max(500)).max(20).optional()
+});
 
 @Injectable()
 export class ProjectsService {
@@ -28,7 +35,10 @@ export class ProjectsService {
     });
   }
 
-  async create(input: CreateProjectDto) {
+  async create(body: unknown) {
+    const parsed = createProjectSchema.safeParse(body);
+    if (!parsed.success) throw new BadRequestException(parsed.error.issues.map(issue => issue.message).join(" "));
+    const input = parsed.data;
     const owner = await this.workspaceContext.getOwner();
 
     return this.prisma.$transaction(async (transaction) => {

@@ -481,7 +481,7 @@ test("persists a project and versioned requirement through the HTTP API", async 
 
   assert.equal(updateResult.response.status, 200);
   assert.equal(updateResult.body.currentVersion, 2);
-  assert.equal(updateResult.body.status, "in_review");
+  assert.equal(updateResult.body.status, "draft");
 
   const requirementDetail = await requestJson<RequirementResponse>(`/api/requirements/${requirementResult.body.id}`);
   assert.equal(requirementDetail.response.status, 200);
@@ -541,4 +541,75 @@ test("persists a project and versioned requirement through the HTTP API", async 
     }
   });
   assert.equal(auditEventCount, 11);
+});
+
+async function createGovernanceFixture() {
+  const project = await requestJson<ProjectResponse>("/api/projects", { method: "POST", body: JSON.stringify({ name: "Approval regression" }) });
+  const requirement = await requestJson<RequirementResponse>(`/api/projects/${project.body.id}/requirements`, {
+    method: "POST", body: JSON.stringify({ title: "Original title", statement: "Original statement", type: "functional", priority: "must" })
+  });
+  const packet = await requestJson<ReviewPacketResponse>(`/api/projects/${project.body.id}/review-packets`, {
+    method: "POST", body: JSON.stringify({ requirementIds: [requirement.body.id] })
+  });
+  assert.equal(packet.response.status, 201);
+  return { project: project.body, requirement: requirement.body, packet: packet.body };
+}
+
+const approvalBody = JSON.stringify({ decision: "approved", reviewerName: "Test reviewer" });
+
+test("stale packet is immutable and cannot approve later edits", async () => {
+  const { requirement, packet } = await createGovernanceFixture();
+  const edited = await requestJson<RequirementResponse>(`/api/requirements/${requirement.id}`, {
+    method: "PATCH", body: JSON.stringify({ title: "New confidential title", statement: "New confidential statement", priority: "could", type: "business" })
+  });
+  assert.equal(edited.body.status, "draft");
+  const review = await requestJson<any>(`/api/review/${packet.token}`);
+  assert.equal(JSON.stringify(review.body).includes("New confidential"), false);
+  assert.equal(review.body.baseline.items[0].requirementVersion.title, "Original title");
+  assert.equal(review.body.baseline.items[0].requirementVersion.priority, "must");
+  const decision = await requestJson<any>(`/api/review/${packet.token}/decision`, { method: "POST", body: approvalBody });
+  assert.equal(decision.response.status, 201);
+  assert.deepEqual(decision.body.supersededRequirementIds, [requirement.id]);
+  assert.equal((await prisma.requirement.findUniqueOrThrow({ where: { id: requirement.id } })).status, "draft");
+  assert.equal(await prisma.approvalEvidence.count({ where: { baselineId: packet.id } }), 1);
+});
+
+test("concurrent repeated decisions create one evidence record and one audit event", async () => {
+  const { packet } = await createGovernanceFixture();
+  const responses = await Promise.all(Array.from({ length: 4 }, () => requestJson<any>(`/api/review/${packet.token}/decision`, { method: "POST", body: approvalBody })));
+  assert.deepEqual(responses.map(r => r.response.status).sort(), [201, 409, 409, 409]);
+  assert.equal(await prisma.approvalEvidence.count({ where: { baselineId: packet.id } }), 1);
+  assert.equal(await prisma.auditEvent.count({ where: { artefactId: packet.id, action: "review_packet.approved" } }), 1);
+});
+
+test("editing approved content returns the new version to draft without deleting evidence", async () => {
+  const { requirement, packet } = await createGovernanceFixture();
+  assert.equal((await requestJson<any>(`/api/review/${packet.token}/decision`, { method: "POST", body: approvalBody })).response.status, 201);
+  const edit = await requestJson<RequirementResponse>(`/api/requirements/${requirement.id}`, { method: "PATCH", body: JSON.stringify({ statement: "Revised after approval", status: "approved" }) });
+  assert.equal(edit.body.status, "draft");
+  assert.equal(edit.body.currentVersion, 2);
+  assert.equal(await prisma.approvalEvidence.count({ where: { baselineId: packet.id } }), 1);
+});
+
+test("expired or revoked links cannot read or submit and completed receipts stay readable", async () => {
+  for (const status of ["expired", "revoked"] as const) {
+    const { packet } = await createGovernanceFixture();
+    await prisma.reviewLink.updateMany({ where: { baselineId: packet.id }, data: { status } });
+    assert.equal((await requestJson<any>(`/api/review/${packet.token}`)).response.status, 409);
+    assert.equal((await requestJson<any>(`/api/review/${packet.token}/decision`, { method: "POST", body: approvalBody })).response.status, 409);
+    assert.equal(await prisma.approvalEvidence.count({ where: { baselineId: packet.id } }), 0);
+  }
+  const { packet } = await createGovernanceFixture();
+  await requestJson<any>(`/api/review/${packet.token}/decision`, { method: "POST", body: approvalBody });
+  assert.equal((await requestJson<any>(`/api/review/${packet.token}`)).body.status, "completed");
+});
+
+test("ambiguous multi-link packet rejects decisions without inventing consensus", async () => {
+  const { packet } = await createGovernanceFixture();
+  const duplicate = await requestJson<any>(`/api/baselines/${packet.id}/send-review`, { method: "POST", body: JSON.stringify({}) });
+  assert.equal(duplicate.response.status, 409);
+  await prisma.reviewLink.create({ data: { tokenHash: `legacy-${packet.id}`, baselineId: packet.id, artefactType: "requirement_baseline", artefactId: packet.id, expiresAt: new Date(Date.now() + 60_000), status: "active" } });
+  assert.equal((await requestJson<any>(`/api/review/${packet.token}/decision`, { method: "POST", body: approvalBody })).response.status, 409);
+  assert.equal(await prisma.approvalEvidence.count({ where: { baselineId: packet.id } }), 0);
+  assert.equal((await prisma.requirementBaseline.findUniqueOrThrow({ where: { id: packet.id } })).status, "sent_for_review");
 });

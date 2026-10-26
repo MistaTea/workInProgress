@@ -1,11 +1,17 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { z } from "zod";
 import type { Prisma } from "@ba-workbench/database";
 import { PrismaService } from "../database/prisma.service";
 import { WorkspaceContextService } from "../database/workspace-context.service";
 import { DocumentIngestionQueueService } from "./document-ingestion-queue.service";
 
 const MAX_NATIVE_SOURCE_CHARACTERS = 2_000_000;
-const SUPPORTED_NATIVE_DOCUMENT_TYPES = new Set(["text/plain", "text/markdown", "transcript"]);
+const createDocumentSchema = z.object({
+  name: z.string().trim().min(1).max(200),
+  documentType: z.enum(["text/plain", "text/markdown", "transcript"]),
+  content: z.string().max(MAX_NATIVE_SOURCE_CHARACTERS).refine(value => value.trim().length > 0, "Document content is required."),
+  metadata: z.record(z.unknown()).optional()
+});
 
 export interface CreateDocumentDto {
   name: string;
@@ -63,30 +69,13 @@ export class DocumentsService {
     });
   }
 
-  async create(projectId: string, input: CreateDocumentDto) {
+  async create(projectId: string, body: unknown) {
+    const parsed = createDocumentSchema.safeParse(body);
+    if (!parsed.success) throw new BadRequestException(parsed.error.issues.map(issue => issue.message).join(" "));
+    const input = parsed.data;
     const { owner } = await this.workspaceContext.assertProjectAccess(projectId);
-    const name = input.name?.trim();
-    const sourceText = normalizeSourceText(input.content ?? "");
-
-    if (!name) {
-      throw new BadRequestException("Document name is required.");
-    }
-
-    if (!SUPPORTED_NATIVE_DOCUMENT_TYPES.has(input.documentType)) {
-      throw new BadRequestException(
-        `Unsupported native document type ${input.documentType}. Supported types: ${[...SUPPORTED_NATIVE_DOCUMENT_TYPES].join(", ")}.`
-      );
-    }
-
-    if (!sourceText.trim()) {
-      throw new BadRequestException("Document content is required.");
-    }
-
-    if (sourceText.length > MAX_NATIVE_SOURCE_CHARACTERS) {
-      throw new BadRequestException(
-        `Native document content cannot exceed ${MAX_NATIVE_SOURCE_CHARACTERS.toLocaleString()} characters.`
-      );
-    }
+    const name = input.name;
+    const sourceText = normalizeSourceText(input.content);
 
     const documentId = crypto.randomUUID();
     const storageUri = `native://documents/${documentId}/versions/1`;
@@ -201,24 +190,26 @@ export class DocumentsService {
   }
 
   private async enqueue(documentId: string, projectId: string) {
+    const ingestionAttemptId = crypto.randomUUID();
+    // Atomically claim the pending/retryable document before Redis can start work.
+    // Completed extraction with pending embedding is still an active ingestion.
+    const claimed = await this.prisma.document.updateMany({
+      where: {
+        id: documentId,
+        extractionStatus: { notIn: ["queued", "processing"] },
+        embeddingStatus: { notIn: ["queued", "processing"] },
+        NOT: { extractionStatus: "completed", embeddingStatus: "pending" }
+      },
+      data: { ingestionAttemptId, extractionStatus: "queued", embeddingStatus: "pending", extractionError: null, embeddingError: null }
+    });
+    if (claimed.count !== 1) throw new ConflictException("Document ingestion is already queued or processing. Refresh its status before retrying.");
     try {
-      await this.ingestionQueue.enqueue({ documentId, projectId });
-      await this.prisma.document.update({
-        where: { id: documentId },
-        data: {
-          extractionStatus: "queued",
-          embeddingStatus: "pending",
-          extractionError: null,
-          embeddingError: null
-        }
-      });
+      await this.ingestionQueue.enqueue({ documentId, projectId, ingestionAttemptId });
     } catch (error) {
-      await this.prisma.document.update({
-        where: { id: documentId },
-        data: {
-          extractionStatus: "queue_failed",
-          extractionError: errorMessage(error)
-        }
+      // Queue acceptance can be ambiguous: never downgrade a worker that started.
+      await this.prisma.document.updateMany({
+        where: { id: documentId, ingestionAttemptId, extractionStatus: "queued", embeddingStatus: "pending" },
+        data: { extractionStatus: "queue_failed", extractionError: errorMessage(error) }
       });
     }
   }

@@ -8,7 +8,8 @@
     "start": "node dist/main.js",
     "lint": "tsc -p tsconfig.json --noEmit",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsx --test test/api.integration.test.ts"
+    "test": "tsx --test --test-concurrency=1 test/*.test.ts",
+    "test:unit": "tsx --test test/review-governance.test.ts test/evidence-state.test.ts test/intake-governance.test.ts"
   },
   "dependencies": {
     "@ba-workbench/ai-schemas": "workspace:*",
