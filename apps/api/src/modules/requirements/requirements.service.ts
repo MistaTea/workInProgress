@@ -1,4 +1,4 @@
-import { Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type { Prisma } from "@ba-workbench/database";
 import type { RequirementStatus, RequirementSummary, RequirementType } from "@ba-workbench/shared";
 import { PrismaService } from "../database/prisma.service";
@@ -9,7 +9,7 @@ export interface CreateRequirementDto {
   statement: string;
   type: RequirementType;
   priority?: RequirementSummary["priority"];
-  rationale?: string;
+  rationale?: string | null;
 }
 
 export type UpdateRequirementDto = Partial<CreateRequirementDto> & {
@@ -128,29 +128,38 @@ export class RequirementsService {
   async update(requirementId: string, input: UpdateRequirementDto) {
     const existing = await this.get(requirementId);
     const owner = await this.workspaceContext.getOwner();
-    const nextVersion = existing.currentVersion + 1;
     const nextTitle = input.title ?? existing.title;
     const nextStatement = input.statement ?? existing.statement;
     const nextType = input.type ?? existing.type;
     const nextPriority = input.priority ?? existing.priority;
-    const nextRationale = input.rationale ?? existing.rationale;
+    const nextRationale = input.rationale !== undefined ? input.rationale : existing.rationale;
     const nextSourceRefs = existing.versions[0]?.sourceRefs;
+    const contentChanged = nextTitle !== existing.title || nextStatement !== existing.statement ||
+      nextType !== existing.type || nextPriority !== existing.priority || nextRationale !== existing.rationale;
+    // Approval evidence applies to a version, not all future edits.
+    const nextVersion = existing.currentVersion + (contentChanged ? 1 : 0);
+    const nextStatus = contentChanged ? "draft" : input.status;
 
     return this.prisma.$transaction(async (transaction) => {
-      const requirement = await transaction.requirement.update({
-        where: { id: requirementId },
+      const update = await transaction.requirement.updateMany({
+        where: { id: requirementId, currentVersion: existing.currentVersion },
         data: {
           ...(input.title !== undefined ? { title: input.title } : {}),
           ...(input.statement !== undefined ? { statement: input.statement } : {}),
           ...(input.type !== undefined ? { type: input.type } : {}),
           ...(input.priority !== undefined ? { priority: input.priority } : {}),
           ...(input.rationale !== undefined ? { rationale: input.rationale } : {}),
-          ...(input.status !== undefined ? { status: input.status } : {}),
+          ...(nextStatus !== undefined ? { status: nextStatus } : {}),
           currentVersion: nextVersion
         }
       });
 
-      await transaction.requirementVersion.create({
+      if (update.count !== 1) {
+        throw new ConflictException("This requirement changed. Refresh it before saving your edits.");
+      }
+      const requirement = await transaction.requirement.findUniqueOrThrow({ where: { id: requirementId } });
+
+      if (contentChanged) await transaction.requirementVersion.create({
         data: {
           requirementId,
           version: nextVersion,

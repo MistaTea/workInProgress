@@ -115,3 +115,23 @@ cp .env.example .env
 pnpm db:deploy
 pnpm test
 ```
+
+### Version-bound stakeholder decisions
+
+Review links expose only the frozen requirement versions in their packet, not later edits. A decision is recorded
+against that snapshot. Only requirements still at that exact version receive the decision's status; newer versions
+remain unchanged and their IDs are returned in `supersededRequirementIds` and retained in the audit event. Changing
+requirement content resets the new version to `draft`, even if an approval status is supplied with the edit. Concurrent
+edits require a refresh rather than silently overwriting each other.
+
+Decision submission claims an unexpired active link atomically, so retries cannot create duplicate evidence.
+Expired/revoked links cannot read packet content or submit decisions. Completed links can read their immutable receipt.
+The current flow supports one reviewer link per packet. Additional links, and decisions for legacy packets with multiple
+non-revoked links, return a conflict without recording a decision: multi-reviewer quorum/aggregation policy is not yet
+implemented. Create a fresh single-reviewer packet instead. This is not an authenticated approval/signature system:
+names and email addresses are self-declared, possession of a link grants access, and production authentication remains
+unimplemented. Do not expose the development API to untrusted users.
+
+`pnpm --filter @ba-workbench/api test:unit` runs the isolated review-governance checks without a database. The main
+`pnpm test` suite additionally exercises immutable snapshots, stale decisions, repeated concurrent submissions, edits
+after approval and link lifecycle against PostgreSQL.
