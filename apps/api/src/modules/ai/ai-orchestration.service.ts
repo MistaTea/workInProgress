@@ -117,7 +117,7 @@ export class AiOrchestrationService {
         data: {
           projectId,
           jobType,
-          status: "pending",
+          status: "queued",
           input: {
             sourceArtefactIds,
             ...(parsedInput.data.instructions !== undefined ? { instructions: parsedInput.data.instructions } : {})
@@ -149,16 +149,9 @@ export class AiOrchestrationService {
         aiJobId: job.id,
         projectId
       });
-      await this.prisma.aiJob.update({
-        where: { id: job.id },
-        data: {
-          status: "queued",
-          error: null
-        }
-      });
     } catch (error) {
-      await this.prisma.aiJob.update({
-        where: { id: job.id },
+      await this.prisma.aiJob.updateMany({
+        where: { id: job.id, status: "queued" },
         data: {
           status: "queue_failed",
           error: errorMessage(error)

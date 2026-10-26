@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   Check,
@@ -213,6 +213,26 @@ function candidateState(candidate: RequirementCandidate): CandidateFormState {
 }
 
 export function ReviewWorkbench() {
+  const [requestedProjectId, setRequestedProjectId] = useState<string | null>(null);
+  useEffect(() => {
+    const readLocation = () => setRequestedProjectId(new URLSearchParams(window.location.search).get("projectId") ?? "");
+    readLocation();
+    window.addEventListener("popstate", readLocation);
+    return () => window.removeEventListener("popstate", readLocation);
+  }, []);
+  const selectProject = useCallback((id: string, replace = false) => {
+    const url = new URL(window.location.href);
+    if (id) url.searchParams.set("projectId", id);
+    else url.searchParams.delete("projectId");
+    window.history[replace ? "replaceState" : "pushState"](window.history.state, "", url);
+    setRequestedProjectId(id);
+  }, []);
+  if (requestedProjectId === null) return <div role="status" className="loading-panel">Loading project context…</div>;
+  // Project changes remount all scoped state and cancel/discard its pending work.
+  return <ReviewWorkspace key={requestedProjectId} requestedProjectId={requestedProjectId} onProjectChange={selectProject} />;
+}
+
+function ReviewWorkspace({ requestedProjectId, onProjectChange }: { requestedProjectId: string; onProjectChange: (id: string, replace?: boolean) => void }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [drafts, setDrafts] = useState<DraftListItem[]>([]);
@@ -235,6 +255,18 @@ export function ReviewWorkbench() {
   const [bootstrappingDemo, setBootstrappingDemo] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const mounted = useRef(true);
+  const epochs = useRef({ projects: 0, drafts: 0, detail: 0, requirements: 0, packets: 0 });
+  const currentDraftId = useRef(selectedDraftId);
+  currentDraftId.current = selectedDraftId;
+  const candidateSubmission = useRef(false);
+  const packetSubmission = useRef(false);
+  const demoSubmission = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+
   const selectedProject = useMemo(
     () => projects.find((project) => project.id === selectedProjectId) ?? null,
     [projects, selectedProjectId]
@@ -249,24 +281,39 @@ export function ReviewWorkbench() {
   );
 
   const loadProjects = useCallback(async () => {
+    if (!mounted.current) return;
+    const epoch = ++epochs.current.projects;
+    const current = () => mounted.current && epochs.current.projects === epoch;
     setLoadingProjects(true);
     setError(null);
     try {
       const data = await fetchJson<Project[]>("/projects");
+      if (!current()) return;
       setProjects(data);
-      setSelectedProjectId((current) => current || data[0]?.id || "");
+      if (requestedProjectId && !data.some((project) => project.id === requestedProjectId)) {
+        setSelectedProjectId("");
+        setError("The requested project is unavailable. Choose an accessible project; no other project's reviews have been loaded.");
+      } else {
+        const id = requestedProjectId || data[0]?.id || "";
+        setSelectedProjectId(id);
+        if (!requestedProjectId && id) onProjectChange(id, true);
+      }
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Unable to load projects.");
+      if (current()) setError(caught instanceof Error ? caught.message : "Unable to load projects.");
     } finally {
-      setLoadingProjects(false);
+      if (current()) setLoadingProjects(false);
     }
-  }, []);
+  }, [requestedProjectId, onProjectChange]);
 
   const loadDrafts = useCallback(async (projectId: string) => {
+    if (!mounted.current) return;
+    const epoch = ++epochs.current.drafts;
+    const current = () => mounted.current && epochs.current.drafts === epoch;
     if (!projectId) {
       setDrafts([]);
       setSelectedDraftId("");
       setDraftDetail(null);
+      setLoadingDrafts(false);
       return;
     }
 
@@ -274,6 +321,7 @@ export function ReviewWorkbench() {
     setError(null);
     try {
       const data = await fetchJson<DraftListItem[]>(`/projects/${projectId}/ai/drafts`);
+      if (!current()) return;
       setDrafts(data);
       setSelectedDraftId((current) => {
         if (current && data.some((draft) => draft.id === current)) {
@@ -286,22 +334,28 @@ export function ReviewWorkbench() {
         setDraftDetail(null);
       }
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Unable to load AI drafts.");
+      if (current()) setError(caught instanceof Error ? caught.message : "Unable to load AI drafts.");
     } finally {
-      setLoadingDrafts(false);
+      if (current()) setLoadingDrafts(false);
     }
   }, []);
 
   const loadDraftDetail = useCallback(async (projectId: string, draftId: string) => {
+    if (!mounted.current) return;
+    const epoch = ++epochs.current.detail;
+    const current = () => mounted.current && epochs.current.detail === epoch && currentDraftId.current === draftId;
     if (!projectId || !draftId) {
       setDraftDetail(null);
+      setLoadingDetail(false);
       return;
     }
 
+    setDraftDetail(null);
     setLoadingDetail(true);
     setError(null);
     try {
       const data = await fetchJson<DraftDetail>(`/projects/${projectId}/ai/drafts/${draftId}`);
+      if (!current()) return;
       setDraftDetail(data);
       setActiveCandidateIndex((current) => {
         if (data.requirementCandidates.some((candidate) => candidate.candidateIndex === current)) {
@@ -311,13 +365,16 @@ export function ReviewWorkbench() {
         return data.requirementCandidates[0]?.candidateIndex ?? 0;
       });
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Unable to load AI draft detail.");
+      if (current()) setError(caught instanceof Error ? caught.message : "Unable to load AI draft detail.");
     } finally {
-      setLoadingDetail(false);
+      if (current()) setLoadingDetail(false);
     }
   }, []);
 
   const loadRequirements = useCallback(async (projectId: string) => {
+    if (!mounted.current) return;
+    const epoch = ++epochs.current.requirements;
+    const current = () => mounted.current && epochs.current.requirements === epoch;
     if (!projectId) {
       setRequirements([]);
       setSelectedRequirementIds([]);
@@ -326,27 +383,33 @@ export function ReviewWorkbench() {
 
     try {
       const data = await fetchJson<RequirementListItem[]>(`/projects/${projectId}/requirements`);
+      if (!current()) return;
       setRequirements(data);
       setSelectedRequirementIds((current) => current.filter((id) => data.some((requirement) => requirement.id === id)));
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Unable to load requirements.");
+      if (current()) setError(caught instanceof Error ? caught.message : "Unable to load requirements.");
     }
   }, []);
 
   const loadReviewPackets = useCallback(async (projectId: string) => {
+    if (!mounted.current) return;
+    const epoch = ++epochs.current.packets;
+    const current = () => mounted.current && epochs.current.packets === epoch;
     if (!projectId) {
       setReviewPackets([]);
+      setLoadingReviewPackets(false);
       return;
     }
 
     setLoadingReviewPackets(true);
     try {
       const data = await fetchJson<ReviewPacket[]>(`/projects/${projectId}/review-packets`);
+      if (!current()) return;
       setReviewPackets(data);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Unable to load stakeholder review packets.");
+      if (current()) setError(caught instanceof Error ? caught.message : "Unable to load stakeholder review packets.");
     } finally {
-      setLoadingReviewPackets(false);
+      if (current()) setLoadingReviewPackets(false);
     }
   }, []);
 
@@ -382,9 +445,9 @@ export function ReviewWorkbench() {
   }
 
   async function submitCandidateReview(candidate: RequirementCandidate, form: CandidateFormState, decision: "accepted" | "rejected") {
-    if (!selectedProjectId || !selectedDraftId) {
-      return;
-    }
+    if (!selectedProjectId || !selectedDraftId || candidateSubmission.current) return;
+    const submittedDraftId = selectedDraftId;
+    const current = () => mounted.current && currentDraftId.current === submittedDraftId;
 
     const comments = form.comments.trim();
     const rejectionReason = form.rejectionReason.trim();
@@ -393,6 +456,7 @@ export function ReviewWorkbench() {
       return;
     }
 
+    candidateSubmission.current = true;
     setReviewingCandidate(candidate.candidateIndex);
     setError(null);
     try {
@@ -421,13 +485,17 @@ export function ReviewWorkbench() {
           body: JSON.stringify(body)
         }
       );
+      if (!current()) return;
+      ++epochs.current.detail;
+      setLoadingDetail(false);
       setDraftDetail(updatedDraft);
       await loadDrafts(selectedProjectId);
       await loadRequirements(selectedProjectId);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Unable to submit review decision.");
+      if (current()) setError(caught instanceof Error ? caught.message : "Unable to submit review decision.");
     } finally {
-      setReviewingCandidate(null);
+      candidateSubmission.current = false;
+      if (mounted.current) setReviewingCandidate(null);
     }
   }
 
@@ -438,6 +506,7 @@ export function ReviewWorkbench() {
   }
 
   async function createStakeholderReviewPacket() {
+    if (packetSubmission.current) return;
     if (!selectedProjectId) {
       return;
     }
@@ -446,6 +515,7 @@ export function ReviewWorkbench() {
       return;
     }
 
+    packetSubmission.current = true;
     setCreatingPacket(true);
     setLatestReviewUrl(null);
     setError(null);
@@ -459,19 +529,23 @@ export function ReviewWorkbench() {
           stakeholderEmail
         })
       });
+      if (!mounted.current) return;
       setLatestReviewUrl(packet.token ? `${window.location.origin}/stakeholder-review/${packet.token}` : packet.reviewUrl ?? null);
       setSelectedRequirementIds([]);
       setPacketName("");
       await loadRequirements(selectedProjectId);
       await loadReviewPackets(selectedProjectId);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Unable to create stakeholder review packet.");
+      if (mounted.current) setError(caught instanceof Error ? caught.message : "Unable to create stakeholder review packet.");
     } finally {
-      setCreatingPacket(false);
+      packetSubmission.current = false;
+      if (mounted.current) setCreatingPacket(false);
     }
   }
 
   async function bootstrapDemo() {
+    if (demoSubmission.current) return;
+    demoSubmission.current = true;
     setBootstrappingDemo(true);
     setLatestReviewUrl(null);
     setError(null);
@@ -479,14 +553,13 @@ export function ReviewWorkbench() {
       const demo = await fetchJson<DemoBootstrapResponse>("/demo/bootstrap", {
         method: "POST"
       });
-      setProjects((current) => [demo.project, ...current.filter((project) => project.id !== demo.project.id)]);
-      setSelectedProjectId(demo.project.id);
-      setSelectedDraftId(demo.aiDraft.id);
-      await loadProjects();
+      if (!mounted.current) return;
+      onProjectChange(demo.project.id);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Unable to create demo data.");
+      if (mounted.current) setError(caught instanceof Error ? caught.message : "Unable to create demo data.");
     } finally {
-      setBootstrappingDemo(false);
+      demoSubmission.current = false;
+      if (mounted.current) setBootstrappingDemo(false);
     }
   }
 
@@ -502,15 +575,9 @@ export function ReviewWorkbench() {
         </div>
         <nav className="nav-list">
           {[
-            { label: "Home", href: "/" },
-            { label: "Projects", href: "#" },
-            { label: "Requirements", href: "#" },
-            { label: "Documents", href: "#" },
-            { label: "Traceability", href: "#" },
-            { label: "Reviews", href: "/reviews" },
-            { label: "Evidence", href: "/evidence" },
-            { label: "Integrations", href: "#" },
-            { label: "Reports", href: "#" }
+            { label: "Home", href: `/?projectId=${encodeURIComponent(selectedProjectId || requestedProjectId)}` },
+            { label: "Reviews", href: `/reviews?projectId=${encodeURIComponent(selectedProjectId || requestedProjectId)}` },
+            { label: "Evidence", href: `/evidence?projectId=${encodeURIComponent(selectedProjectId || requestedProjectId)}` }
           ].map((item) => (
             <a className={item.label === "Reviews" ? "active" : ""} href={item.href} key={item.label}>
               {item.label}
@@ -526,7 +593,7 @@ export function ReviewWorkbench() {
             <h1>BA review queue</h1>
           </div>
           <div className="review-topbar-actions">
-            <button className="button secondary" disabled={bootstrappingDemo} onClick={() => void bootstrapDemo()} type="button">
+            <button className="button secondary" disabled={bootstrappingDemo || loadingProjects} onClick={() => void bootstrapDemo()} type="button">
               {bootstrappingDemo ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : <FileSearch size={16} aria-hidden="true" />}
               Load demo
             </button>
@@ -535,9 +602,10 @@ export function ReviewWorkbench() {
               <select
                 aria-label="Project"
                 disabled={loadingProjects || projects.length === 0}
-                onChange={(event) => setSelectedProjectId(event.target.value)}
+                onChange={(event) => onProjectChange(event.target.value)}
                 value={selectedProjectId}
               >
+                {!selectedProjectId && <option value="">Choose a project</option>}
                 {projects.map((project) => (
                   <option key={project.id} value={project.id}>
                     {project.name}
@@ -545,7 +613,7 @@ export function ReviewWorkbench() {
                 ))}
               </select>
             </label>
-            <button className="icon-button" disabled={loadingProjects || loadingDrafts || loadingDetail} onClick={refresh} type="button">
+            <button className="icon-button" disabled={loadingProjects || loadingDrafts || loadingDetail || reviewingCandidate !== null || creatingPacket || bootstrappingDemo} onClick={refresh} type="button">
               <RefreshCw size={17} aria-hidden="true" />
               <span className="sr-only">Refresh</span>
             </button>
@@ -574,7 +642,8 @@ export function ReviewWorkbench() {
                 <button
                   className={draft.id === selectedDraftId ? "draft-row active" : "draft-row"}
                   key={draft.id}
-                  onClick={() => setSelectedDraftId(draft.id)}
+                  onClick={() => { setDraftDetail(null); setSelectedDraftId(draft.id); }}
+                  disabled={reviewingCandidate !== null}
                   type="button"
                 >
                   <span className={`status-dot ${draft.reviewStatus}`} aria-hidden="true" />
@@ -603,7 +672,7 @@ export function ReviewWorkbench() {
                 <LoaderCircle className="spin" size={22} aria-hidden="true" />
                 <span>Loading draft evidence</span>
               </div>
-            ) : draftDetail && activeCandidate ? (
+            ) : draftDetail && draftDetail.id === selectedDraftId && activeCandidate ? (
               <>
                 <div className="draft-summary">
                   <div>

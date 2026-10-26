@@ -124,10 +124,13 @@ test("extracts, embeds, audits, and preserves chunk identities when reprocessed"
     assert.equal(metadata.characterCount, chunk.chunkText.length);
   }
 
+  const retryAttemptId = "synthetic-retry-attempt";
+  await prisma.document.update({ where: { id: document.id }, data: { extractionStatus: "queued", embeddingStatus: "pending", ingestionAttemptId: retryAttemptId } });
   await ingestDocument(
     {
       documentId: document.id,
-      projectId: project.id
+      projectId: project.id,
+      ingestionAttemptId: retryAttemptId
     },
     {
       prisma,

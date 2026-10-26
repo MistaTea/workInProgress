@@ -290,6 +290,7 @@ model Document {
   documentType     String
   storageUri       String
   sourceText       String?
+  ingestionAttemptId String?
   extractionStatus String          @default("pending")
   embeddingStatus  String          @default("pending")
   extractionError  String?

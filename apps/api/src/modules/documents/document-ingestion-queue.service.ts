@@ -4,6 +4,7 @@ import { type ConnectionOptions, Queue } from "bullmq";
 export interface DocumentIngestionJob {
   documentId: string;
   projectId: string;
+  ingestionAttemptId?: string;
 }
 
 function createRedisConnection(): ConnectionOptions {
@@ -28,6 +29,7 @@ export class DocumentIngestionQueueService implements OnModuleDestroy {
 
   async enqueue(job: DocumentIngestionJob) {
     await this.queue.add("ingest-document", job, {
+      ...(job.ingestionAttemptId ? { jobId: `document-ingestion-${job.documentId}-${job.ingestionAttemptId}` } : {}),
       removeOnComplete: 100,
       removeOnFail: 500
     });

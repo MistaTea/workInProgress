@@ -1180,3 +1180,22 @@ h2 {
   .evidence-shell .evidence-comparison { grid-template-columns: 1fr; }
 }
 .evidence-shell select:focus-visible, .evidence-shell textarea:focus-visible { outline: 3px solid var(--teal-dark); outline-offset: 3px; }
+
+/* Real project and native-document intake workspace. */
+.home-shell .home-start-grid, .home-shell .home-intake-grid { display: grid; gap: 18px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.home-shell .home-card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 20px; display: grid; align-content: start; gap: 16px; min-width: 0; }
+.home-shell .home-project { display: grid; gap: 20px; min-width: 0; }
+.home-shell .home-loading, .home-shell .home-links { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.home-shell .home-document-list { display: grid; gap: 8px; max-height: 620px; overflow: auto; }
+.home-shell .home-document-list .draft-row { grid-template-columns: minmax(0, 1fr); }
+.home-shell .home-source-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; }
+.home-shell .home-chunk { padding: 16px; background: #f6f8f7; border: 1px solid var(--line); border-radius: 6px; }
+.home-shell .home-chunk h4 { margin: 0 0 8px; }
+.home-shell .home-chunk p { margin: 12px 0 0; }
+.home-shell .home-status-grid { display: flex; gap: 24px; flex-wrap: wrap; margin: 0; }
+.home-shell .home-status-grid dt { font-weight: 700; }
+.home-shell .home-status-grid dd { margin: 6px 0 0; }
+.home-shell :is(input, textarea, select, button, a):focus-visible { outline: 3px solid var(--teal-dark); outline-offset: 3px; }
+.home-shell .home-card > p { line-height: 1.5; margin-bottom: 0; }
+@media (max-width: 1000px) { .home-shell .home-start-grid, .home-shell .home-intake-grid { grid-template-columns: 1fr; } }
+@media (max-width: 760px) { .home-shell .workspace { padding: 18px; } .home-shell .home-links .button { width: 100%; } }

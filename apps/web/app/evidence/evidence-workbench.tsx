@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertCircle, FileSearch, LoaderCircle, RefreshCw } from "lucide-react";
 
 type Outcome = "supports" | "needs_follow_up";
@@ -105,6 +105,26 @@ function ErrorBanner({ children }: { children: React.ReactNode }) {
 }
 
 export function EvidenceWorkbench() {
+  const [requestedProjectId, setRequestedProjectId] = useState<string | null>(null);
+  useEffect(() => {
+    const readLocation = () => setRequestedProjectId(new URLSearchParams(window.location.search).get("projectId") ?? "");
+    readLocation();
+    window.addEventListener("popstate", readLocation);
+    return () => window.removeEventListener("popstate", readLocation);
+  }, []);
+  const selectProject = useCallback((id: string, replace = false) => {
+    const url = new URL(window.location.href);
+    if (id) url.searchParams.set("projectId", id);
+    else url.searchParams.delete("projectId");
+    window.history[replace ? "replaceState" : "pushState"](window.history.state, "", url);
+    setRequestedProjectId(id);
+  }, []);
+  if (requestedProjectId === null) return <div role="status" className="loading-panel">Loading project context…</div>;
+  // Project changes remount all scoped state and cancel/discard its pending work.
+  return <EvidenceWorkspace key={requestedProjectId} requestedProjectId={requestedProjectId} onProjectChange={selectProject} />;
+}
+
+function EvidenceWorkspace({ requestedProjectId, onProjectChange }: { requestedProjectId: string; onProjectChange: (id: string, replace?: boolean) => void }) {
   const [projects, setProjects] = useState<Array<{ id: string; name: string }>>(
     [],
   );
@@ -120,9 +140,14 @@ export function EvidenceWorkbench() {
       .then((data) => {
         if (controller.signal.aborted) return;
         setProjects(data);
-        setProjectId((id) =>
-          data.some((p) => p.id === id) ? id : (data[0]?.id ?? ""),
-        );
+        if (requestedProjectId && !data.some((p) => p.id === requestedProjectId)) {
+          setProjectId("");
+          setError("The requested project is unavailable. Choose an accessible project; no other project's evidence has been loaded.");
+        } else {
+          const id = requestedProjectId || data[0]?.id || "";
+          setProjectId(id);
+          if (!requestedProjectId && id) onProjectChange(id, true);
+        }
       })
       .catch((error) => {
         if (!controller.signal.aborted) setError(message(error));
@@ -131,7 +156,7 @@ export function EvidenceWorkbench() {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [reload]);
+  }, [reload, requestedProjectId, onProjectChange]);
   return (
     <main className="app-shell review-shell evidence-shell">
       <aside className="sidebar" aria-label="Primary navigation">
@@ -143,9 +168,9 @@ export function EvidenceWorkbench() {
           </div>
         </div>
         <nav className="nav-list">
-          <a href="/">Home</a>
-          <a href="/reviews">Reviews</a>
-          <a className="active" aria-current="page" href="/evidence">
+          <a href={`/?projectId=${encodeURIComponent(projectId || requestedProjectId)}`}>Home</a>
+          <a href={`/reviews?projectId=${encodeURIComponent(projectId || requestedProjectId)}`}>Reviews</a>
+          <a className="active" aria-current="page" href={`/evidence?projectId=${encodeURIComponent(projectId || requestedProjectId)}`}>
             Evidence
           </a>
         </nav>
@@ -162,10 +187,10 @@ export function EvidenceWorkbench() {
               <select
                 value={projectId}
                 disabled={loading || !projects.length}
-                onChange={(event) => setProjectId(event.target.value)}
+                onChange={(event) => onProjectChange(event.target.value)}
               >
-                {!projects.length && (
-                  <option value="">No project available</option>
+                {!projectId && (
+                  <option value="">Choose a project</option>
                 )}
                 {projects.map((p) => (
                   <option key={p.id} value={p.id}>

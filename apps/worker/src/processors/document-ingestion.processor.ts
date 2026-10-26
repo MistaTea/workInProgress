@@ -7,6 +7,7 @@ import { chunkDocumentText } from "./document-chunker";
 export interface DocumentIngestionJob {
   documentId: string;
   projectId: string;
+  ingestionAttemptId?: string;
 }
 
 export interface EmbeddingProvider {
@@ -18,6 +19,7 @@ export interface EmbeddingProvider {
 export interface DocumentIngestionDependencies {
   prisma?: PrismaClient;
   embeddingProvider?: EmbeddingProvider | null;
+  embeddingProviderFactory?: () => EmbeddingProvider | null;
 }
 
 const EMBEDDING_BATCH_SIZE = 64;
@@ -94,12 +96,13 @@ async function recordFailure(
   documentId: string,
   projectId: string,
   phase: "extraction" | "embedding",
-  error: unknown
+  error: unknown,
+  ingestionAttemptId: string | null
 ) {
   const message = errorMessage(error);
   await prisma.$transaction([
     prisma.document.update({
-      where: { id: documentId },
+      where: { id: documentId, ingestionAttemptId },
       data:
         phase === "extraction"
           ? {
@@ -132,7 +135,8 @@ async function persistChunks(
   documentId: string,
   projectId: string,
   documentName: string,
-  sourceText: string
+  sourceText: string,
+  ingestionAttemptId: string | null
 ) {
   const drafts = chunkDocumentText(sourceText);
   if (drafts.length === 0) {
@@ -186,7 +190,7 @@ async function persistChunks(
     });
 
     await transaction.document.update({
-      where: { id: documentId },
+      where: { id: documentId, ingestionAttemptId },
       data: {
         extractionStatus: "completed",
         embeddingStatus: "pending",
@@ -219,10 +223,11 @@ async function persistEmbeddings(
   documentId: string,
   projectId: string,
   chunks: Array<{ id: string; chunkText: string }>,
-  provider: EmbeddingProvider
+  provider: EmbeddingProvider,
+  ingestionAttemptId: string | null
 ) {
   await prisma.document.update({
-    where: { id: documentId },
+    where: { id: documentId, ingestionAttemptId },
     data: {
       embeddingStatus: "processing",
       embeddingError: null
@@ -254,7 +259,7 @@ async function persistEmbeddings(
     }
 
     await transaction.document.update({
-      where: { id: documentId },
+      where: { id: documentId, ingestionAttemptId },
       data: {
         embeddingStatus: "completed",
         embeddingError: null,
@@ -296,13 +301,18 @@ export async function ingestDocument(job: DocumentIngestionJob, dependencies: Do
     throw new Error(`Document ${job.documentId} was not found in project ${job.projectId}.`);
   }
 
-  await prisma.document.update({
-    where: { id: document.id },
+  const ingestionAttemptId = job.ingestionAttemptId ?? null;
+  const claim = await prisma.document.updateMany({
+    where: { id: document.id, ingestionAttemptId, extractionStatus: { in: ["pending", "queued", "queue_failed"] } },
     data: {
       extractionStatus: "processing",
       extractionError: null
     }
   });
+
+  if (claim.count !== 1) {
+    return { documentId: document.id, projectId: document.projectId, chunkCount: 0, extractionStatus: "superseded_or_already_claimed", embeddingStatus: "skipped", skipped: true };
+  }
 
   let chunks: Array<{ id: string; chunkText: string }>;
   try {
@@ -310,37 +320,37 @@ export async function ingestDocument(job: DocumentIngestionJob, dependencies: Do
       throw new Error("Document has no native source text to extract.");
     }
 
-    chunks = await persistChunks(prisma, document.id, document.projectId, document.name, document.sourceText);
+    chunks = await persistChunks(prisma, document.id, document.projectId, document.name, document.sourceText, ingestionAttemptId);
   } catch (error) {
-    await recordFailure(prisma, document.id, document.projectId, "extraction", error);
+    await recordFailure(prisma, document.id, document.projectId, "extraction", error, ingestionAttemptId);
     throw error;
   }
 
-  const embeddingProvider =
-    dependencies.embeddingProvider === undefined ? createEmbeddingProviderFromEnvironment() : dependencies.embeddingProvider;
-
-  if (!embeddingProvider) {
-    await prisma.document.update({
-      where: { id: document.id },
-      data: {
-        embeddingStatus: "skipped",
-        embeddingError: null
-      }
-    });
-
-    return {
-      documentId: document.id,
-      projectId: document.projectId,
-      chunkCount: chunks.length,
-      extractionStatus: "completed",
-      embeddingStatus: "skipped"
-    };
-  }
-
   try {
-    await persistEmbeddings(prisma, document.id, document.projectId, chunks, embeddingProvider);
+    const embeddingProvider =
+      dependencies.embeddingProvider === undefined ? (dependencies.embeddingProviderFactory ?? createEmbeddingProviderFromEnvironment)() : dependencies.embeddingProvider;
+
+    if (!embeddingProvider) {
+      await prisma.document.update({
+        where: { id: document.id, ingestionAttemptId },
+        data: {
+          embeddingStatus: "skipped",
+          embeddingError: null
+        }
+      });
+
+      return {
+        documentId: document.id,
+        projectId: document.projectId,
+        chunkCount: chunks.length,
+        extractionStatus: "completed",
+        embeddingStatus: "skipped"
+      };
+    }
+
+    await persistEmbeddings(prisma, document.id, document.projectId, chunks, embeddingProvider, ingestionAttemptId);
   } catch (error) {
-    await recordFailure(prisma, document.id, document.projectId, "embedding", error);
+    await recordFailure(prisma, document.id, document.projectId, "embedding", error, ingestionAttemptId);
     throw error;
   }
 

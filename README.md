@@ -175,3 +175,34 @@ Use test-service `DATABASE_URL`/`REDIS_URL` values, never production data. Ports
 starts and stops its own servers and will not reuse an existing instance. CI runs these checks after the normal build
 and retains failure-only traces/screenshots for seven days. Coverage includes evidence acknowledgements and history,
 content/source revalidation, stale-conflict refresh, repeat submission safety, and frozen stakeholder snapshots.
+
+### Start your own project and source intake
+
+Home now reads real projects and counts from the API instead of showing example metrics or fictional work items.
+Create a project, select it, and paste plain text, Markdown, or a transcript (up to 20,000 characters in the browser).
+The workspace shows queued/processing/completed status, chunk content, extraction/embedding errors, manual refresh,
+and retry for failed ingestion. Loading/error/empty states are explicit; pending work is polled until terminal status
+or a read error. Project context is retained in `?projectId=` links across Home, Reviews and Evidence, including browser
+Back/Forward; unknown IDs are not silently replaced with another project.
+
+Parsing/chunking is real and works without a provider key. Embeddings are separately reported as skipped when no
+provider is configured. Intake does **not** automatically generate requirements or call the requirement-extraction
+integration. The existing **Load demo** action is a separate seeded demonstration, not extraction of your own notes.
+This increment adds no file uploads, provider setup, general mock extractor or external AI calls during testing.
+
+Each ingestion attempt has an identifier shared by the database row and queue payload. Queued intent is persisted
+before publishing; late failure callbacks cannot overwrite another attempt, and stale/duplicate deliveries cannot
+claim a newer ingestion. An ambiguous enqueue error may still represent accepted work; an explicit retry supersedes
+that attempt, so its delayed delivery becomes a no-op. Active work cannot be retried concurrently. This is not a
+transactional outbox: a process crash between database claim and queue publication can leave queued intent requiring
+operator reconciliation; no automatic timeout/lease policy is invented. Provider-initialization failures become
+terminal embedding failures so an explicit retry remains possible after configuration is repaired.
+
+Browser CI uses isolated Redis DB15 and a document-only worker with its embedding provider explicitly disabled.
+It covers real project/source creation, guarded repeated clicks, pending-to-completed parsing/chunks, project deep
+links/Back/invalid IDs, and discarding delayed responses from a previously selected project.
+
+The same conservative boundary applies to a worker crash while an attempt is processing: duplicate/stalled redelivery
+cannot prove the previous owner has stopped, so it does not take over or mutate that active attempt. The document can
+remain processing and require operator reconciliation. Current tests explicitly expose this limitation; automatic
+stalled-job recovery/leases are not implemented, and active attempts are never silently retried by the UI.

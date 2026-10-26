@@ -24,6 +24,8 @@ export default defineConfig({
       url: "http://127.0.0.1:4000/api/health",
       env: {
         PORT: "4000",
+        REDIS_URL: "redis://127.0.0.1:6379/15",
+        OPENAI_API_KEY: "",
         DEFAULT_OWNER_EMAIL: "browser-e2e@ba-workbench.local",
         DEFAULT_OWNER_NAME: "Synthetic Browser BA",
         DEFAULT_ORGANISATION_NAME: "Synthetic Browser Test Workspace",
